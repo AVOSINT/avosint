@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 /* ══════════════════════════════════════════════════════════════════════════════
    CONSTANTS
@@ -1678,6 +1679,7 @@ export default function AviationDashboard() {
 
       {/* ══ AI CHAT DRAWER ══════════════════════════════════════════════════ */}
       <AIChatDrawer open={chatOpen} onToggle={()=>setChatOpen(v=>!v)} dashboardState={chatDashboardState}/>
+      <SpeedInsights />
 
     </div>
   );
