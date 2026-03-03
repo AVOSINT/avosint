@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Analytics } from "@vercel/analytics/react";
 
 /* ══════════════════════════════════════════════════════════════════════════════
    CONSTANTS
@@ -1362,6 +1361,7 @@ If nothing notable, respond: {"alerts":[]}`,
     const L=window.L;
     incidentLayerRef.current.clearLayers();
     filteredIncidents.forEach(ev=>{
+      if(ev.lat==null||ev.lon==null) return; // skip events without coordinates
       const sev=SEVERITY_META[ev.severity]||SEVERITY_META.medium;
       const meta=EVENT_META[ev.type]||EVENT_META.incident;
       const icon=L.divIcon({html:`<div style="width:16px;height:16px;border-radius:50%;background:${sev.color};border:2px solid white;box-shadow:0 0 10px ${sev.color}"></div>`,className:"",iconSize:[18,18],iconAnchor:[9,9]});
@@ -1537,7 +1537,7 @@ If nothing notable, respond: {"alerts":[]}`,
           <StatPill label="AIRBORNE"  value={airborne}  color={C.safe}/>
           <StatPill label="EMERGENCY" value={emergency}  color={C.danger} blink/>
           <StatPill label="EVENTS" value={filteredIncidents.length} color="#ff5533"/>
-          <StatPill label="INCIDENTS" value={incidents}  color={C.warn}/>
+          <StatPill label="INCIDENTS" value={incidents.length}  color={C.warn}/>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
 
@@ -1848,19 +1848,22 @@ If nothing notable, respond: {"alerts":[]}`,
                     <div style={{animation:"blink 0.8s step-end infinite",fontSize:"18px",marginBottom:"8px"}}>📡</div>
                     LOADING ASRS + SDR + ASIAS DATA…
                   </div>
-                :incidentsStatus==="error"
+                // Only show error block when NO events at all — partial source failures still show what loaded
+                :incidentsStatus==="error"&&incidents.length===0
                   ?<div style={{padding:"24px",textAlign:"center",fontFamily:"'Share Tech Mono',monospace",fontSize:"11px",lineHeight:1.8}}>
                       <div style={{color:C.danger,marginBottom:"8px"}}>⚠ DATA FEED ERROR</div>
-                      <div style={{color:C.muted,fontSize:"10px"}}>ASRS or SDR unavailable.<br/>Check API proxy logs in Vercel.</div>
-                      <button onClick={fetchIncidents} style={{...btn,marginTop:"10px",fontSize:"9px"}}>⟳ RETRY</button>
+                      <div style={{color:C.muted,fontSize:"10px"}}>All event sources unavailable.<br/>Check API proxy logs in Vercel.</div>
+                      <button onClick={()=>fetchIncidents()} style={{...btn,marginTop:"10px",fontSize:"9px"}}>⟳ RETRY</button>
                     </div>
                   :filteredIncidents.length===0
                     ?<div style={{padding:"32px",textAlign:"center",color:C.muted,fontFamily:"'Share Tech Mono',monospace",fontSize:"11px"}}>
                         {incidents.length===0?"NO EVENTS LOADED":"NO EVENTS MATCH FILTERS"}
                       </div>
-                    :[...filteredIncidents].sort((a,b)=>b.date.localeCompare(a.date)).map(ev=>(
-                        <EventCard key={ev.id} ev={ev} selected={selectedEvent?.id===ev.id} onClick={()=>setSelectedEvent(ev)} onGeneratePost={generatePost} generating={generatingEventId===ev.id}/>
-                      ))
+                    :[...filteredIncidents]
+                        .sort((a,b)=>(b.date||"").localeCompare(a.date||""))
+                        .map(ev=>(
+                          <EventCard key={ev.id} ev={ev} selected={selectedEvent?.id===ev.id} onClick={()=>setSelectedEvent(ev)} onGeneratePost={generatePost} generating={generatingEventId===ev.id}/>
+                        ))
             )}
 
             {/* FLIGHTS */}
@@ -2173,9 +2176,6 @@ If nothing notable, respond: {"alerts":[]}`,
 
       {/* ══ AI CHAT DRAWER ══════════════════════════════════════════════════ */}
       <AIChatDrawer open={chatOpen} onToggle={()=>setChatOpen(v=>!v)} dashboardState={chatDashboardState}/>
-
-      {/* ══ VERCEL WEB ANALYTICS ════════════════════════════════════════════ */}
-      <Analytics />
 
     </div>
   );
