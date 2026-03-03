@@ -1,17 +1,9 @@
 // api/asias.js — FAA ASIAS Preliminary Accident & Incident Reports
 // Source: https://www.asias.faa.gov/apex/f?p=100:93:::NO:::
-// Data window: last 10 BUSINESS DAYS only — this is a hard FAA constraint,
-// not a limitation of this proxy. Historical data beyond ~14 calendar days
-// is not available through this page.
-//
-// Strategy:
-//  1. GET the main APEX page to obtain a session cookie
-//  2. Use that cookie to request the CSV export
-//  3. Parse CSV rows into normalized event objects
+// Data window: last 10 BUSINESS DAYS only — FAA constraint.
 
 const BASE = "https://www.asias.faa.gov/apex";
 
-// Rough lat/lon for US states — used when only a state is listed
 const STATE_COORDS = {
   AL:[32.8,-86.8],AK:[64.2,-153.4],AZ:[34.3,-111.1],AR:[34.8,-92.2],
   CA:[36.8,-119.4],CO:[39.0,-105.5],CT:[41.6,-72.7],DE:[39.0,-75.5],
@@ -26,339 +18,252 @@ const STATE_COORDS = {
   SD:[44.4,-100.2],TN:[35.9,-86.4],TX:[31.5,-99.3],UT:[39.4,-111.1],
   VT:[44.0,-72.7],VA:[37.5,-79.5],WA:[47.4,-120.6],WV:[38.6,-80.6],
   WI:[44.3,-89.8],WY:[43.0,-107.6],DC:[38.9,-77.0],PR:[18.2,-66.5],
-  GU:[13.4,144.8],
-};
-
-// Airport IATA → coords (extended subset)
-const AIRPORT_COORDS = {
-  ATL:[33.6407,-84.4277],LAX:[33.9425,-118.4081],ORD:[41.9742,-87.9073],
-  DFW:[32.8998,-97.0403],DEN:[39.8561,-104.6737],JFK:[40.6413,-73.7781],
-  SFO:[37.6213,-122.379],LAS:[36.084,-115.1537],MCO:[28.4294,-81.3089],
-  CLT:[35.214,-80.9431],LGA:[40.7772,-73.8726],EWR:[40.6895,-74.1745],
-  PHX:[33.4373,-112.0078],SEA:[47.4502,-122.3088],MIA:[25.7959,-80.287],
-  BOS:[42.3656,-71.0096],MSP:[44.8848,-93.2223],DTW:[42.2162,-83.3554],
-  IAH:[29.9902,-95.3368],IAD:[38.9531,-77.4565],DCA:[38.8512,-77.0402],
-  SLC:[40.7884,-111.9778],PDX:[45.5887,-122.5975],MDW:[41.7868,-87.7522],
-  TPA:[27.9755,-82.5332],BNA:[36.1263,-86.6774],AUS:[30.1975,-97.6664],
-  MEM:[35.0421,-90.0032],MSY:[29.9934,-90.258],PHL:[39.8729,-75.2437],
-  SAN:[32.7336,-117.1897],BWI:[39.1754,-76.6682],STL:[38.7487,-90.37],
-  MCI:[39.2976,-94.7139],CLE:[41.4117,-81.8498],CVG:[39.0488,-84.6678],
-  CMH:[39.998,-82.8919],IND:[39.7173,-86.2944],MKE:[42.9472,-87.8966],
-  OMA:[41.3032,-95.894],OKC:[35.3931,-97.6007],ABQ:[35.0402,-106.609],
-  TUS:[32.1161,-110.941],ELP:[31.8072,-106.3779],BOI:[43.5644,-116.2228],
-  FAI:[64.8151,-147.8561],HNL:[21.3245,-157.9251],ANC:[61.1743,-149.9963],
 };
 
 function coordsFor(city, state) {
-  // Try airport code in city name (e.g. "KATL" or "ATL")
-  if (city) {
-    const codes = city.toUpperCase().match(/\b[A-Z]{3,4}\b/g) || [];
-    for (const code of codes) {
-      const iata = code.length === 4 && code.startsWith("K") ? code.slice(1) : code;
-      if (AIRPORT_COORDS[iata]) return AIRPORT_COORDS[iata];
-    }
-  }
-  // Fall back to state centroid
   if (state) {
-    const st = state.trim().toUpperCase().slice(0, 2);
+    const st = state.trim().toUpperCase().slice(0,2);
     if (STATE_COORDS[st]) return STATE_COORDS[st];
   }
-  return null;
+  if (city) {
+    const up = city.toUpperCase();
+    for (const [abbr, coords] of Object.entries(STATE_COORDS)) {
+      if (up.includes(` ${abbr}`) || up.endsWith(abbr)) return coords;
+    }
+  }
+  return [null, null];
 }
 
 function categoryFromMake(make) {
-  const m = (make || "").toUpperCase();
-  if (/BOEING|AIRBUS|EMBRAER|BOMBARDIER|COMAC/.test(m)) return "Commercial Jet";
-  if (/BELL|ROBINSON|SIKORSKY|AIRBUS.HEL|EUROCOPTER|SCHWEIZER|ENSTROM|HILLER/.test(m)) return "Helicopter";
-  if (/CESSNA|PIPER|BEECH|CIRRUS|MOONEY|SOCATA|GLASAIR|LANCAIR|VANS|KITFOX|ZENITH|GLASTAR|KITFOX|RV-|SONEX|BELLANCA|AMERICAN CHAMP|ERCOUPE/.test(m)) return "Private/GA";
-  if (/AIR TRACTOR|GRUMMAN AGRIC|WEATHERLY/.test(m)) return "Private/GA"; // ag aircraft
-  if (/GULFSTREAM|LEARJET|DASSAULT|CESSNA CITAT|HAWKER|TEXTRON|PILATUS|EPIC/.test(m)) return "Private/GA";
-  return "Private/GA"; // ASIAS is ~90% GA
-}
-
-// Parse CSV text — handles quoted fields and embedded commas
-function parseCSV(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) return [];
-
-  // Find header row
-  const header = lines[0].split(",").map(h => h.replace(/"/g, "").trim().toUpperCase());
-
-  const rows = [];
-  for (let i = 1; i < lines.length; i++) {
-    // Simple CSV parse — handle quoted fields
-    const fields = [];
-    let field = "";
-    let inQuote = false;
-    for (const ch of lines[i]) {
-      if (ch === '"') { inQuote = !inQuote; continue; }
-      if (ch === "," && !inQuote) { fields.push(field.trim()); field = ""; continue; }
-      field += ch;
-    }
-    fields.push(field.trim());
-
-    const row = {};
-    header.forEach((h, idx) => { row[h] = fields[idx] || ""; });
-    rows.push(row);
-  }
-  return rows;
-}
-
-// Convert a parsed CSV row into our normalized event schema
-function rowToEvent(row, idx) {
-  // ASIAS CSV column names (observed): 
-  // ENTRY DATE, EVENT DATE, STATE, CITY, MAKE, MODEL, REGISTRATION, 
-  // FATAL FLAG, INJURY, EVENT TYPE, REMARK
-  // Column names may vary — we try multiple aliases
-
-  const get = (...keys) => {
-    for (const k of keys) {
-      if (row[k] !== undefined && row[k] !== "") return row[k];
-    }
-    return "";
-  };
-
-  const entryDateRaw = get("ENTRY DATE","ENTRY_DATE","DATE ENTERED","ENTRYDATE");
-  const eventDateRaw = get("EVENT DATE","EVENT_DATE","ACCIDENT DATE","EVENTDATE","DATE OF ACCIDENT","DATE");
-  const state        = get("STATE","ST");
-  const city         = get("CITY","LOCATION","CITY/STATE");
-  const make         = get("MAKE","AIRCRAFT MAKE","MANUFACTURER");
-  const model        = get("MODEL","AIRCRAFT MODEL");
-  const reg          = get("REGISTRATION","REG","TAIL NUMBER","TAIL NO","N-NUMBER");
-  const fatalFlag    = get("FATAL FLAG","FATAL","FATALITIES FLAG","IS FATAL");
-  const injuryRaw    = get("INJURY","INJURIES","INJURY TYPE","INJURY LEVEL");
-  const eventType    = get("EVENT TYPE","TYPE","ACCIDENT/INCIDENT");
-  const remark       = get("REMARK","REMARKS","NARRATIVE","DESCRIPTION","PRELIMINARY DESCRIPTION");
-
-  // Parse event date — try MM/DD/YYYY, DD-MON-YY, YYYY-MM-DD
-  let isoDate = new Date().toISOString().slice(0, 10);
-  const useDate = eventDateRaw || entryDateRaw;
-  const dm1 = useDate.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
-  const dm2 = useDate.match(/(\d{1,2})-([A-Z]{3})-(\d{2,4})/i);
-  const dm3 = useDate.match(/(\d{4})-(\d{2})-(\d{2})/);
-  if (dm3) {
-    isoDate = `${dm3[1]}-${dm3[2]}-${dm3[3]}`;
-  } else if (dm1) {
-    const yr = dm1[3].length === 2 ? `20${dm1[3]}` : dm1[3];
-    isoDate = `${yr}-${dm1[1].padStart(2,"0")}-${dm1[2].padStart(2,"0")}`;
-  } else if (dm2) {
-    const MONTHS = {JAN:"01",FEB:"02",MAR:"03",APR:"04",MAY:"05",JUN:"06",
-                   JUL:"07",AUG:"08",SEP:"09",OCT:"10",NOV:"11",DEC:"12"};
-    const yr = dm2[3].length === 2 ? `20${dm2[3]}` : dm2[3];
-    isoDate = `${yr}-${MONTHS[dm2[2].toUpperCase()]||"01"}-${dm2[1].padStart(2,"0")}`;
-  }
-
-  const isFatal   = /yes|fatal|y/i.test(fatalFlag);
-  const fatalities = isFatal ? 1 : 0;
-  const aircraft  = [make, model].filter(Boolean).join(" ").trim() || "Unknown Aircraft";
-  const location  = [city, state].filter(Boolean).join(", ") || "Location not reported";
-  const coords    = coordsFor(city, state);
-
-  // Severity
-  let severity = "low";
-  if (isFatal) severity = "critical";
-  else if (/serious|major|destroyed|hull/i.test(injuryRaw)) severity = "high";
-  else if (/minor|subst/i.test(injuryRaw)) severity = "medium";
-
-  // Type
-  const type = /accident/i.test(eventType) ? "accident" : "incident";
-
-  const description = remark
-    ? remark.slice(0, 600)
-    : `${type === "accident" ? "Accident" : "Incident"} involving ${aircraft} in ${location}. See FAA ASIAS for full preliminary report.`;
-
-  return {
-    id:          `ASIAS-${isoDate}-${idx}`,
-    type,
-    severity,
-    date:        isoDate,
-    aircraft:    aircraft.slice(0, 60),
-    category:    categoryFromMake(make),
-    reg:         reg || null,
-    carrier:     null,
-    location,
-    lat:         coords ? coords[0] : null,
-    lon:         coords ? coords[1] : null,
-    injuries:    injuryRaw || (isFatal ? "Fatal" : "Not reported"),
-    fatalities,
-    phase:       "Unknown", // ASIAS preliminary data doesn't include phase
-    description,
-    source:      "ASIAS",
-    url:         "https://www.asias.faa.gov/apex/f?p=100:93:::NO:::",
-    entryDate:   entryDateRaw, // keep raw entry date for display
-  };
+  const m = (make||"").toUpperCase();
+  if (/BOEING|AIRBUS|EMBRAER|BOMBARDIER/.test(m)) return "Commercial Jet";
+  if (/BELL|ROBINSON|SIKORSKY|EUROCOPTER|AIRBUS HEL/.test(m)) return "Helicopter";
+  return "Private/GA";
 }
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).end();
 
-  const fetchedAt = new Date().toISOString();
+  console.log("[ASIAS] Starting fetch");
 
   try {
-    // Step 1 — Load main page to get session cookie from Oracle APEX
+    // Step 1: GET main page to obtain session
     const mainResp = await fetch(`${BASE}/f?p=100:93:::NO:::`, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
+        "Accept":     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
       signal: AbortSignal.timeout(15000),
     });
 
-    // Capture session cookie from response
-    const rawCookies = mainResp.headers.get("set-cookie") || "";
-    // APEX session cookie is typically ORA_WWV_APP_100 or similar
-    const cookieHeader = rawCookies.split(",")
+    console.log(`[ASIAS] Main page status: ${mainResp.status}`);
+    const setCookie = mainResp.headers.get("set-cookie") || "";
+    console.log(`[ASIAS] Set-Cookie: ${setCookie.slice(0,200)}`);
+
+    // Build cookie string from set-cookie header
+    const cookies = setCookie.split(/,(?=[^;]+=[^;]+;|[^;]+=)/)
       .map(c => c.split(";")[0].trim())
       .filter(c => c.includes("="))
       .join("; ");
+    console.log(`[ASIAS] Cookie to send: ${cookies.slice(0,200)}`);
 
-    // Also extract the APEX session ID from the page HTML if present
     const mainHtml = await mainResp.text();
-    const sessionMatch = mainHtml.match(/f\?p=100:93:(\d+)/);
-    const sessionId = sessionMatch ? sessionMatch[1] : "";
+    console.log(`[ASIAS] Main HTML length: ${mainHtml.length}`);
+    console.log(`[ASIAS] Main HTML snippet: ${mainHtml.slice(0,500).replace(/\s+/g," ")}`);
 
-    // Step 2 — Request the CSV export
-    // Try both with and without session ID
+    // Extract APEX session ID from page links/forms
+    const sessionMatch = mainHtml.match(/f\?p=100:93:(\d{10,})/);
+    const sessionId = sessionMatch ? sessionMatch[1] : "";
+    console.log(`[ASIAS] Session ID extracted: ${sessionId}`);
+
+    // Also look for the CSV export link directly in the page
+    const csvLinkMatch = mainHtml.match(/href="([^"]*EXCEL[^"]*|[^"]*csv[^"]*|[^"]*CSV[^"]*)"/i);
+    console.log(`[ASIAS] CSV link in page: ${csvLinkMatch ? csvLinkMatch[1] : "none found"}`);
+
+    // Step 2: Try CSV export with multiple URL patterns
     const csvUrls = [
-      sessionId
-        ? `${BASE}/f?p=100:93:${sessionId}:FLOW_EXCEL_OUTPUT_R16070756597770675_en`
-        : null,
+      sessionId ? `${BASE}/f?p=100:93:${sessionId}:FLOW_EXCEL_OUTPUT_R16070756597770675_en` : null,
       `${BASE}/f?p=100:93::FLOW_EXCEL_OUTPUT_R16070756597770675_en`,
+      csvLinkMatch ? `${BASE}/${csvLinkMatch[1].replace(/^\/apex\//,"")}` : null,
     ].filter(Boolean);
 
-    let csvText = "";
-    let csvFetched = false;
-
     for (const csvUrl of csvUrls) {
+      console.log(`[ASIAS] Trying CSV URL: ${csvUrl}`);
       try {
         const csvResp = await fetch(csvUrl, {
           headers: {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Accept": "text/csv,application/csv,text/plain,*/*",
-            "Referer": `${BASE}/f?p=100:93:::NO:::`,
-            "Cookie": cookieHeader,
+            "Accept":     "text/csv,application/csv,text/plain,*/*",
+            "Referer":    `${BASE}/f?p=100:93:::NO:::`,
+            "Cookie":     cookies,
           },
           signal: AbortSignal.timeout(20000),
         });
 
-        if (csvResp.ok) {
-          const contentType = csvResp.headers.get("content-type") || "";
-          const body = await csvResp.text();
-          // Confirm it looks like CSV data (has commas and newlines)
-          if (body.includes(",") && body.includes("\n") && body.length > 100) {
-            csvText = body;
-            csvFetched = true;
-            break;
+        console.log(`[ASIAS] CSV response status: ${csvResp.status}`);
+        console.log(`[ASIAS] CSV content-type: ${csvResp.headers.get("content-type")}`);
+        const body = await csvResp.text();
+        console.log(`[ASIAS] CSV body length: ${body.length}`);
+        console.log(`[ASIAS] CSV body first 300: ${body.slice(0,300).replace(/\s+/g," ")}`);
+
+        // Check if it looks like CSV data
+        if (body.length > 200 && body.includes(",") && body.split("\n").length > 2) {
+          const events = parseCsv(body);
+          if (events.length > 0) {
+            console.log(`[ASIAS] Parsed ${events.length} events from CSV`);
+            res.setHeader("Cache-Control", "max-age=3600");
+            return res.status(200).json({
+              events, count: events.length, source: "ASIAS",
+              dataWindow: "10 business days", method: "csv",
+            });
           }
         }
-      } catch (e) {
-        // Try next URL
-        continue;
+      } catch(e) {
+        console.log(`[ASIAS] CSV URL failed: ${e.message}`);
       }
     }
 
-    // Step 3 — If CSV fetch failed, try parsing the HTML table directly
-    if (!csvFetched) {
-      // Parse the summary HTML table as fallback — gives counts by date and make,
-      // not individual records, but better than nothing
-      const events = parseAsiasSummaryHtml(mainHtml, fetchedAt);
-      res.setHeader("Cache-Control", "max-age=3600");
-      return res.status(200).json({
-        events,
-        fetchedAt,
-        source: "ASIAS",
-        count: events.length,
-        dataWindow: "10 business days",
-        method: "html-summary", // indicates reduced fidelity
-        note: "CSV export unavailable — summary data only. Individual report details require FAA ASIAS login.",
-      });
-    }
+    // Step 3: Fall back to parsing the HTML summary table
+    console.log("[ASIAS] CSV unavailable — parsing HTML summary table");
+    const events = parseHtmlSummary(mainHtml);
+    console.log(`[ASIAS] HTML summary parsed ${events.length} events`);
 
-    // Step 4 — Parse CSV and normalize
-    const rows   = parseCSV(csvText);
-    const events = rows
-      .map((row, i) => rowToEvent(row, i))
-      .filter(ev => ev.aircraft !== "Unknown Aircraft" || ev.location !== "Location not reported");
-
-    res.setHeader("Cache-Control", "max-age=3600"); // 1hr cache — data updates daily
+    res.setHeader("Cache-Control", "max-age=3600");
     return res.status(200).json({
-      events,
-      fetchedAt,
-      source: "ASIAS",
-      count: events.length,
-      dataWindow: "10 business days",
-      method: "csv",
+      events, count: events.length, source: "ASIAS",
+      dataWindow: "10 business days", method: "html-summary",
     });
 
   } catch (err) {
-    console.error("ASIAS handler error:", err.message);
+    console.error(`[ASIAS] Fatal error: ${err.message}`);
     return res.status(200).json({
-      events: [],
-      fetchedAt,
-      source: "ASIAS",
-      error: `ASIAS unavailable: ${err.message}`,
+      events: [], source: "ASIAS", error: err.message,
       dataWindow: "10 business days",
     });
   }
 }
 
-// Fallback: parse the HTML summary table into approximate events
-// This creates one event record per date+make combination (lower fidelity)
-function parseAsiasSummaryHtml(html, fetchedAt) {
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.replace(/"/g,"").trim().toUpperCase());
+  console.log(`[ASIAS] CSV headers: ${headers.join(", ")}`);
   const events = [];
-  // Extract date columns from header row
-  const dateMatches = [...html.matchAll(/P94_ENTRY_DATE:(\d{2}-[A-Z]{3}-\d{2})/g)];
-  const dates = dateMatches.map(m => m[1]);
-
-  // Extract make+count cells
-  const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  let rowMatch, rowIdx = 0;
-  while ((rowMatch = rowRegex.exec(html)) !== null) {
-    rowIdx++;
-    if (rowIdx < 4) continue; // skip header rows
-    const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
-      .map(m => m[1].replace(/<[^>]+>/g, "").trim());
-    if (cells.length < 2 || !cells[0]) continue;
-    const make = cells[0];
-    if (/Categories|Aircraft|All Aircraft|Fatal|^\s*$/.test(make)) continue;
-
-    cells.slice(1).forEach((cell, colIdx) => {
-      const count = parseInt(cell.replace(/\*/g, ""), 10);
-      if (!count || isNaN(count)) return;
-      const entryDateRaw = dates[colIdx] || "";
-      // Convert DD-MON-YY to ISO
-      const dm = entryDateRaw.match(/(\d{2})-([A-Z]{3})-(\d{2})/i);
-      const MONTHS = {JAN:"01",FEB:"02",MAR:"03",APR:"04",MAY:"05",JUN:"06",
-                     JUL:"07",AUG:"08",SEP:"09",OCT:"10",NOV:"11",DEC:"12"};
-      const isoDate = dm
-        ? `20${dm[3]}-${MONTHS[dm[2].toUpperCase()]||"01"}-${dm[1]}`
-        : fetchedAt.slice(0, 10);
-
-      for (let i = 0; i < Math.min(count, 5); i++) {
-        const coords = coordsFor("", ""); // no state info in summary
-        events.push({
-          id:          `ASIAS-sum-${isoDate}-${make}-${i}`,
-          type:        "accident",
-          severity:    "medium",
-          date:        isoDate,
-          aircraft:    make,
-          category:    categoryFromMake(make),
-          reg:         null,
-          carrier:     null,
-          location:    "See FAA ASIAS (summary data)",
-          lat:         null,
-          lon:         null,
-          injuries:    "Not reported",
-          fatalities:  0,
-          phase:       "Unknown",
-          description: `Preliminary report: ${count} ${make} aircraft event${count>1?"s":""} entered ${entryDateRaw}. Individual details available at FAA ASIAS. All information is preliminary and subject to change.`,
-          source:      "ASIAS",
-          url:         "https://www.asias.faa.gov/apex/f?p=100:93:::NO:::",
-          entryDate:   entryDateRaw,
-        });
-      }
+  for (let i = 1; i < lines.length; i++) {
+    const fields=[]; let f="",inQ=false;
+    for(const ch of lines[i]){
+      if(ch==='"'){inQ=!inQ;continue;}
+      if(ch===','&&!inQ){fields.push(f.trim());f="";continue;}
+      f+=ch;
+    }
+    fields.push(f.trim());
+    const row={};
+    headers.forEach((h,idx)=>{row[h]=fields[idx]||"";});
+    const get=(...keys)=>{for(const k of keys)if(row[k])return row[k];return "";};
+    const make    = get("MAKE","AIRCRAFT MAKE","MANUFACTURER","MFR");
+    const model   = get("MODEL","AIRCRAFT MODEL");
+    const date    = get("EVENT DATE","EVENT_DATE","DATE","ACCIDENT DATE","DATE OF ACCIDENT");
+    const entDate = get("ENTRY DATE","ENTRY_DATE","DATE ENTERED");
+    const state   = get("STATE","ST");
+    const city    = get("CITY","LOCATION","CITY/STATE");
+    const fatal   = get("FATAL FLAG","FATAL","IS FATAL","FATALITIES FLAG");
+    const injury  = get("INJURY","INJURIES","INJURY TYPE","INJURY LEVEL");
+    const evType  = get("EVENT TYPE","TYPE","ACCIDENT/INCIDENT");
+    const remark  = get("REMARK","REMARKS","NARRATIVE","DESCRIPTION","PRELIMINARY DESCRIPTION");
+    if (!make && !remark) continue;
+    let isoDate = new Date().toISOString().slice(0,10);
+    const useDate = date || entDate;
+    const dm = useDate.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+    const dm2 = useDate.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if(dm2) isoDate=`${dm2[1]}-${dm2[2]}-${dm2[3]}`;
+    else if(dm){const yr=dm[3].length===2?`20${dm[3]}`:dm[3];isoDate=`${yr}-${dm[1].padStart(2,"0")}-${dm[2].padStart(2,"0")}`;}
+    const isFatal = /yes|fatal|y/i.test(fatal);
+    const [lat,lon] = coordsFor(city, state);
+    events.push({
+      id:`ASIAS-${isoDate}-${events.length}`,
+      type:/accident/i.test(evType)?"accident":"incident",
+      severity:isFatal?"critical":/serious|major/i.test(injury)?"high":"medium",
+      date:isoDate,
+      aircraft:`${make} ${model}`.trim().slice(0,60)||"Unknown",
+      category:categoryFromMake(make),
+      reg:null, carrier:null,
+      location:[city,state].filter(Boolean).join(", ")||"Not reported",
+      lat, lon,
+      injuries:injury||(isFatal?"Fatal":"Not reported"),
+      fatalities:isFatal?1:0,
+      phase:"Unknown",
+      description:(remark||`${evType||"Accident/Incident"} involving ${make} in ${state}`).slice(0,600),
+      source:"ASIAS",
+      url:"https://www.asias.faa.gov/apex/f?p=100:93:::NO:::",
+      entryDate: entDate,
     });
   }
+  return events;
+}
+
+function parseHtmlSummary(html) {
+  const events = [];
+  // Extract date column headers — format like "Feb-06" or "DD-MON-YY"
+  const dateMatches = [...html.matchAll(/P94_ENTRY_DATE:(\d{2}-[A-Z]{3}-\d{2})/gi)];
+  const dates = [...new Set(dateMatches.map(m => m[1]))];
+  console.log(`[ASIAS] Summary dates found: ${dates.join(", ")}`);
+
+  if (dates.length === 0) {
+    console.log("[ASIAS] No date columns found in HTML — structure may have changed");
+    console.log(`[ASIAS] HTML contains 'P94_ENTRY_DATE': ${html.includes("P94_ENTRY_DATE")}`);
+    console.log(`[ASIAS] HTML contains 'ENTRY_DATE': ${html.includes("ENTRY_DATE")}`);
+    return events;
+  }
+
+  const MONTHS = {JAN:"01",FEB:"02",MAR:"03",APR:"04",MAY:"05",JUN:"06",
+                  JUL:"07",AUG:"08",SEP:"09",OCT:"10",NOV:"11",DEC:"12"};
+
+  // Parse tbody rows — each manufacturer row has counts per date column
+  // Find all table rows with make names and counts
+  const rowMatches = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+  console.log(`[ASIAS] Total TR rows in HTML: ${rowMatches.length}`);
+
+  let dataRowCount = 0;
+  for (const [,row] of rowMatches) {
+    // Extract text from all cells
+    const cells = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
+      .map(m => m[1].replace(/<[^>]+>/g, "").replace(/&nbsp;/g," ").replace(/\*/g,"").trim());
+
+    if (cells.length < 2) continue;
+    const make = cells[0];
+    if (!make || /categories|aircraft|fatal|all aircraft|^\s*$|\|/i.test(make)) continue;
+    if (make.length > 50) continue; // skip non-make cells
+
+    dataRowCount++;
+    cells.slice(1).forEach((cell, colIdx) => {
+      const count = parseInt(cell, 10);
+      if (!count || isNaN(count) || count < 1) return;
+      const entryDateRaw = dates[colIdx] || "";
+      const dm = entryDateRaw.match(/(\d{2})-([A-Z]{3})-(\d{2})/i);
+      const isoDate = dm
+        ? `20${dm[3]}-${MONTHS[dm[2].toUpperCase()]||"01"}-${dm[1]}`
+        : new Date().toISOString().slice(0,10);
+      // Create one summary event per manufacturer+date (not per individual report)
+      events.push({
+        id:`ASIAS-sum-${isoDate}-${make.replace(/\s/g,"-")}-${colIdx}`,
+        type:"accident",
+        severity:"medium",
+        date:isoDate,
+        aircraft:make,
+        category:categoryFromMake(make),
+        reg:null, carrier:null,
+        location:"United States (see FAA ASIAS for details)",
+        lat:null, lon:null,
+        injuries:"Not reported",
+        fatalities:0,
+        phase:"Unknown",
+        description:`${count} preliminary ${make} aircraft event${count>1?"s":""} entered ${entryDateRaw}. All information is preliminary and subject to change. Individual details at FAA ASIAS.`,
+        source:"ASIAS",
+        url:"https://www.asias.faa.gov/apex/f?p=100:93:::NO:::",
+        entryDate:entryDateRaw,
+      });
+    });
+  }
+  console.log(`[ASIAS] Processed ${dataRowCount} manufacturer data rows → ${events.length} events`);
   return events;
 }
