@@ -30,6 +30,7 @@ const EVENT_META = {
   incident:{ icon:"⚠️", color:"#ffb300",label:"Incident" },
   military:{ icon:"✦", color:"#4488ff",label:"Military" },
   vip:     { icon:"★", color:"#cc88ff",label:"VIP/Gov"  },
+  acars:   { icon:"📡", color:"#00e5ff",label:"ACARS"    },
 };
 
 const AIRCRAFT_CATEGORIES = [
@@ -47,55 +48,254 @@ const CARRIERS = [
   "FedEx Express","UPS Airlines","DHL Aviation","Atlas Air",
 ];
 
-const MAJOR_AIRPORTS = [
-  {iata:"ATL",name:"Atlanta Hartsfield",       lat:33.6407, lon:-84.4277 },
-  {iata:"LAX",name:"Los Angeles Int'l",        lat:33.9425, lon:-118.4081},
-  {iata:"ORD",name:"Chicago O'Hare",           lat:41.9742, lon:-87.9073 },
-  {iata:"DFW",name:"Dallas/Fort Worth",        lat:32.8998, lon:-97.0403 },
-  {iata:"DEN",name:"Denver Int'l",             lat:39.8561, lon:-104.6737},
-  {iata:"JFK",name:"JFK New York",             lat:40.6413, lon:-73.7781 },
-  {iata:"SFO",name:"San Francisco Int'l",      lat:37.6213, lon:-122.379 },
-  {iata:"LAS",name:"Las Vegas Harry Reid",     lat:36.0840, lon:-115.1537},
-  {iata:"MCO",name:"Orlando Int'l",            lat:28.4294, lon:-81.3089 },
-  {iata:"CLT",name:"Charlotte Douglas",        lat:35.2140, lon:-80.9431 },
-  {iata:"LGA",name:"LaGuardia",                lat:40.7772, lon:-73.8726 },
-  {iata:"EWR",name:"Newark Liberty",           lat:40.6895, lon:-74.1745 },
-  {iata:"PHX",name:"Phoenix Sky Harbor",       lat:33.4373, lon:-112.0078},
-  {iata:"SEA",name:"Seattle-Tacoma",           lat:47.4502, lon:-122.3088},
-  {iata:"MIA",name:"Miami Int'l",              lat:25.7959, lon:-80.2870 },
-  {iata:"BOS",name:"Boston Logan",             lat:42.3656, lon:-71.0096 },
-  {iata:"MSP",name:"Minneapolis-St Paul",      lat:44.8848, lon:-93.2223 },
-  {iata:"DTW",name:"Detroit Metro",            lat:42.2162, lon:-83.3554 },
-  {iata:"IAH",name:"Houston Intercontinental", lat:29.9902, lon:-95.3368 },
-  {iata:"BWI",name:"Baltimore/Washington",     lat:39.1754, lon:-76.6682 },
-  {iata:"IAD",name:"Washington Dulles",        lat:38.9531, lon:-77.4565 },
-  {iata:"DCA",name:"Washington Reagan",        lat:38.8512, lon:-77.0402 },
-  {iata:"SLC",name:"Salt Lake City",           lat:40.7884, lon:-111.9778},
-  {iata:"PDX",name:"Portland Int'l",           lat:45.5887, lon:-122.5975},
-  {iata:"MDW",name:"Chicago Midway",           lat:41.7868, lon:-87.7522 },
-];
+// ICAO 3-letter airline designators → carrier name
+// Used to match live ADS-B callsigns (e.g. "AAL123") to carrier filter
+const CARRIER_CALLSIGN_MAP = {
+  "AAL":"American Airlines","DAL":"Delta Air Lines","UAL":"United Airlines",
+  "SWA":"Southwest Airlines","ASA":"Alaska Airlines","JBU":"JetBlue Airways",
+  "NKS":"Spirit Airlines",  "FFT":"Frontier Airlines","BAW":"British Airways",
+  "DLH":"Lufthansa",        "AFR":"Air France",      "KLM":"KLM",
+  "RYR":"Ryanair",          "EZY":"EasyJet",         "UAE":"Emirates",
+  "QTR":"Qatar Airways",    "ETD":"Etihad Airways",  "SIA":"Singapore Airlines",
+  "CPA":"Cathay Pacific",   "JAL":"Japan Airlines",  "ANA":"ANA",
+  "KAL":"Korean Air",       "THY":"Turkish Airlines","AFL":"Aeroflot",
+  "ACA":"Air Canada",       "LAM":"LATAM Airlines",  "LAN":"LATAM Airlines",
+  "TAM":"LATAM Airlines",   "FDX":"FedEx Express",   "UPS":"UPS Airlines",
+  "BCS":"DHL Aviation",     "DHK":"DHL Aviation",    "GTI":"Atlas Air",
+};
 
-const MOCK_INCIDENTS = [
-  {id:"i001",type:"accident",severity:"critical",date:"2024-11-14",aircraft:"Cessna 172S",category:"Private/GA",reg:"N4471K",carrier:null,location:"Aspen-Pitkin County, CO",lat:39.2232,lon:-106.8687,injuries:"1 serious",fatalities:0,phase:"Landing",description:"Hard landing in mountain terrain resulting in nose gear collapse. Pilot reported spatial disorientation during approach to high-altitude field (7,820 ft MSL). Aircraft veered off runway centerline and struck runway lighting. Mountain density altitude cited as contributing factor.",source:"NTSB"},
-  {id:"i002",type:"incident",severity:"medium",date:"2024-10-22",aircraft:"Boeing 737-800",category:"Narrowbody",reg:"N803SW",carrier:"Southwest Airlines",location:"Phoenix Sky Harbor (KPHX)",lat:33.4373,lon:-112.0078,injuries:"None",fatalities:0,phase:"Departure",description:"Aircraft departed runway without explicit ATC clearance due to miscommunication between flight crew and ground control. Runway incursion narrowly averted when intersecting aircraft initiated evasive maneuver. Investigation focuses on crew coordination and ATC phraseology.",source:"FAA"},
-  {id:"i003",type:"accident",severity:"critical",date:"2024-09-08",aircraft:"Piper PA-28 Cherokee",category:"Private/GA",reg:"N7823W",carrier:null,location:"Rural Minnesota, near Rochester",lat:44.0121,lon:-92.4799,injuries:"2 fatal",fatalities:2,phase:"En Route",description:"VFR flight into instrument meteorological conditions. Aircraft impacted terrain during attempted descent through overcast layer. NTSB preliminary report cites spatial disorientation and controlled flight into terrain as probable cause. Pilot held Private certificate, 312 hours TT.",source:"NTSB"},
-  {id:"i004",type:"incident",severity:"medium",date:"2024-10-03",aircraft:"Airbus A320-200",category:"Narrowbody",reg:"N668AW",carrier:"American Airlines",location:"Denver Int'l (KDEN)",lat:39.8561,lon:-104.6737,injuries:"None",fatalities:0,phase:"Approach",description:"Go-around executed at 300 ft AGL after TCAS RA issued due to conflicting traffic. Second aircraft had missed approach instruction and was still on active runway. Minimum separation maintained. ATC investigation opened by FAA AFS-800.",source:"FAA"},
-  {id:"i005",type:"accident",severity:"high",date:"2024-08-15",aircraft:"Robinson R44 Raven II",category:"Helicopter",reg:"N522HX",carrier:null,location:"Los Angeles offshore, CA",lat:33.8121,lon:-118.4532,injuries:"1 serious, 2 minor",fatalities:0,phase:"En Route",description:"Engine failure over ocean requiring autorotation ditching approx 2nm offshore from LAX. All occupants extracted by USCG Sector LA-Long Beach. Post-accident inspection found catastrophic carburetor icing. Pilot did not apply carb heat per RFM.",source:"NTSB"},
-  {id:"i006",type:"incident",severity:"medium",date:"2024-11-01",aircraft:"Boeing 777-300ER",category:"Widebody Heavy",reg:"N77080",carrier:"United Airlines",location:"Chicago O'Hare (KORD)",lat:41.9786,lon:-87.9048,injuries:"3 minor",fatalities:0,phase:"Approach",description:"Severe clear-air turbulence encounter at FL380 causing injuries to three unseatbelted cabin crew members during meal service. Aircraft landed normally. FAA ASIAS report filed. Crew had seatbelt sign off despite PIREPs for moderate turbulence in sector.",source:"FAA"},
-  {id:"i007",type:"accident",severity:"medium",date:"2024-07-28",aircraft:"Beechcraft King Air 350",category:"Turboprop",reg:"N350XL",carrier:null,location:"Telluride Regional (KTEX)",lat:37.9538,lon:-107.9088,injuries:"None",fatalities:0,phase:"Takeoff",description:"Runway excursion during aborted takeoff roll. Engine 2 torque split detected at V1-5 knots requiring abort. Aircraft overran runway 09 end, collapsing both main gear in soft terrain. All 6 occupants self-evacuated. High-altitude density altitude degraded performance.",source:"NTSB"},
-  {id:"i008",type:"incident",severity:"high",date:"2024-10-14",aircraft:"Airbus A350-900",category:"Widebody Heavy",reg:"G-XWBA",carrier:"British Airways",location:"London Heathrow (EGLL)",lat:51.4775,lon:-0.4614,injuries:"None",fatalities:0,phase:"Landing",description:"Hard landing exceeding structural limits due to sudden windshear at 50 ft AGL. Airframe inspection required per AMM limits before return to service. AAIB investigation opened. Crew reported 20-knot headwind shear to tailwind accompanied by 500 fpm downdraft.",source:"EASA"},
-  {id:"i009",type:"accident",severity:"high",date:"2024-06-12",aircraft:"Cessna 208B Grand Caravan",category:"Turboprop",reg:"N208FX",carrier:"FedEx Feeder",location:"Memphis (KMEM)",lat:35.0421,lon:-90.0032,injuries:"None",fatalities:0,phase:"Landing",description:"Gear-up landing after both flight crew members failed to complete pre-landing checklist items. Aircraft slid 800ft on belly, departing runway 18R. Fire suppression system activated automatically. Crew was single-pilot ops; fatigue cited as contributing factor.",source:"NTSB"},
-  {id:"i010",type:"incident",severity:"high",date:"2024-11-19",aircraft:"Boeing 787-9 Dreamliner",category:"Widebody Heavy",reg:"N29971",carrier:"United Airlines",location:"San Francisco (KSFO)",lat:37.6213,lon:-122.379,injuries:"None",fatalities:0,phase:"Approach",description:"Crew aligned aircraft with Taxiway C instead of Runway 28L at night in visual conditions. Go-around executed at 300 ft AGL. Taxiway had active ground traffic. FAA investigation ongoing; possible contributing factors include visual illusion and non-standard lighting.",source:"FAA"},
-  {id:"i011",type:"accident",severity:"medium",date:"2024-05-22",aircraft:"Cirrus SR22 G6",category:"Private/GA",reg:"N422CT",carrier:null,location:"Dallas Executive (KRBD)",lat:32.6809,lon:-96.8683,injuries:"None",fatalities:0,phase:"Approach",description:"Pilot elected to deploy CAPS ballistic parachute system after becoming disoriented in marginal VMC. Aircraft descended under parachute and sustained substantial damage upon ground contact. Pilot uninjured. NTSB commends decision as appropriate use of installed safety system.",source:"NTSB"},
-  {id:"i012",type:"incident",severity:"high",date:"2024-09-30",aircraft:"Embraer ERJ-190",category:"Commercial Jet",reg:"OE-LWA",carrier:"Austrian Airlines",location:"Vienna (LOWW)",lat:48.1102,lon:16.5697,injuries:"None",fatalities:0,phase:"En Route",description:"Rapid decompression at FL370 requiring emergency descent to FL100. Oxygen masks deployed throughout cabin. Crew declared PAN-PAN and diverted to Budapest Ferihegy (LHBP). Post-flight inspection revealed failed outflow valve seal.",source:"EASA"},
-  {id:"i013",type:"accident",severity:"critical",date:"2024-04-18",aircraft:"Bell 407GXi",category:"Helicopter",reg:"N407AH",carrier:"PHI Air Medical",location:"Rural New Mexico",lat:34.2011,lon:-107.2321,injuries:"1 fatal",fatalities:1,phase:"En Route",description:"Night EMS flight impacted unmarked power transmission lines in unlit rural terrain. NTSB cites dark-hole illusion, incomplete obstacle data on sectional charts, and EMS operational pressure as contributing factors. One pilot fatality.",source:"NTSB"},
-  {id:"i014",type:"incident",severity:"low",date:"2024-11-08",aircraft:"Airbus A321neo",category:"Narrowbody",reg:"N101NN",carrier:"American Airlines",location:"JFK Int'l (KJFK)",lat:40.6413,lon:-73.7781,injuries:"None",fatalities:0,phase:"Pushback",description:"Ground vehicle made contact with horizontal stabilizer during pushback. Minor structural damage to leading edge. All 189 passengers deplaned per protocol. Aircraft returned to service after engineering inspection and blending of skin damage.",source:"FAA"},
-  {id:"i015",type:"incident",severity:"medium",date:"2024-10-27",aircraft:"Boeing 737 MAX 8",category:"Narrowbody",reg:"EI-HGK",carrier:"Ryanair",location:"Dublin (EIDW)",lat:53.4213,lon:-6.2701,injuries:"None",fatalities:0,phase:"Departure",description:"EGPWS Mode 4B 'TOO LOW TERRAIN' alert during initial climb. Crew declared Mayday and returned to land. Post-flight review confirmed flaps were in transit at low altitude due to premature retraction. Crew retraining ordered by operator.",source:"EASA"},
-  {id:"i016",type:"military",severity:"low",date:"2024-11-12",aircraft:"Boeing RC-135V Rivet Joint",category:"Military",reg:"64-14846",carrier:"USAF 55th Wing",location:"Black Sea / Romanian airspace",lat:44.1,lon:30.8,injuries:"None",fatalities:0,phase:"En Route",description:"USAF ISR aircraft flew extended pattern in international airspace over Black Sea. Russian Su-30 interceptors conducted close-quarters intercept with estimated 15m closest approach. Aircraft returned to Souda Bay without incident.",source:"DoD SPOT"},
-  {id:"i017",type:"vip",severity:"low",date:"2024-11-20",aircraft:"Boeing VC-25A (Air Force One)",category:"Military",reg:"82-8000",carrier:"USAF 89th AW",location:"Andrews AFB (KADW)",lat:38.8108,lon:-76.8666,injuries:"None",fatalities:0,phase:"Departure",description:"SAM departure with POTUS aboard for bilateral summit. Flight operated as AF1 with standard CRAF/FAA NOTAM clearance. Secondary SAM carrying press pool departed 45 min prior. Route classified.",source:"White House Press Pool"},
-  {id:"i018",type:"accident",severity:"medium",date:"2024-08-03",aircraft:"Piper PA-32R Saratoga",category:"Private/GA",reg:"N4184T",carrier:null,location:"Lake Tahoe Airport, CA/NV",lat:38.8939,lon:-119.9951,injuries:"2 minor",fatalities:0,phase:"Takeoff",description:"Loss of engine power during initial climb from high-altitude airport (6,264 ft MSL). Pilot executed forced landing in meadow north of runway. Post-accident inspection revealed fuel contamination from improperly secured fuel caps.",source:"NTSB"},
-  {id:"i019",type:"incident",severity:"medium",date:"2024-09-18",aircraft:"Airbus A380-800",category:"Widebody Heavy",reg:"A6-EOA",carrier:"Emirates",location:"Dubai Int'l (OMDB)",lat:25.2528,lon:55.3644,injuries:"None",fatalities:0,phase:"Approach",description:"Engine 4 surge during visual approach to RWY 30L. Crew initiated go-around and declared PAN-PAN. Aircraft landed on second attempt with engine operating at reduced thrust. GCAA investigation opened. Aircraft grounded pending borescope inspection.",source:"GCAA"},
-  {id:"i020",type:"incident",severity:"high",date:"2024-10-09",aircraft:"Boeing 737-900ER",category:"Narrowbody",reg:"N885NN",carrier:"American Airlines",location:"Miami Int'l (KMIA)",lat:25.7959,lon:-80.2870,injuries:"4 minor",fatalities:0,phase:"Landing",description:"Nose gear hard landing triggered sensor fault. Post-landing inspection revealed nose gear oleo strut fully compressed indicating hard touchdown exceeding G-load limits. Structural inspection ordered per Boeing AMM. Four passengers treated for minor injuries.",source:"FAA"},
+// 200+ airport coordinates for delay overlay — covers all FAA-reported airports
+// plus major global hubs shown permanently for context
+const MAJOR_AIRPORTS = [
+  // ── US Northeast ─────────────────────────────────────────────────────────
+  {iata:"JFK",name:"JFK New York",          lat:40.6413,lon:-73.7781},
+  {iata:"LGA",name:"LaGuardia",             lat:40.7772,lon:-73.8726},
+  {iata:"EWR",name:"Newark Liberty",        lat:40.6895,lon:-74.1745},
+  {iata:"BOS",name:"Boston Logan",          lat:42.3656,lon:-71.0096},
+  {iata:"PHL",name:"Philadelphia Int'l",    lat:39.8729,lon:-75.2437},
+  {iata:"BWI",name:"Baltimore/Washington",  lat:39.1754,lon:-76.6682},
+  {iata:"IAD",name:"Washington Dulles",     lat:38.9531,lon:-77.4565},
+  {iata:"DCA",name:"Washington Reagan",     lat:38.8512,lon:-77.0402},
+  {iata:"BDL",name:"Bradley Int'l",         lat:41.9389,lon:-72.6832},
+  {iata:"PVD",name:"Providence T.F. Green", lat:41.7236,lon:-71.4281},
+  {iata:"ALB",name:"Albany Int'l",          lat:42.7483,lon:-73.8017},
+  {iata:"BUF",name:"Buffalo Niagara",       lat:42.9405,lon:-78.7322},
+  {iata:"SYR",name:"Syracuse Hancock",      lat:43.1112,lon:-76.1063},
+  {iata:"ROC",name:"Rochester Frederick",   lat:43.1189,lon:-77.6724},
+  // ── US Southeast ──────────────────────────────────────────────────────
+  {iata:"ATL",name:"Atlanta Hartsfield",    lat:33.6407,lon:-84.4277},
+  {iata:"CLT",name:"Charlotte Douglas",     lat:35.2140,lon:-80.9431},
+  {iata:"MIA",name:"Miami Int'l",           lat:25.7959,lon:-80.2870},
+  {iata:"FLL",name:"Fort Lauderdale",       lat:26.0726,lon:-80.1527},
+  {iata:"MCO",name:"Orlando Int'l",         lat:28.4294,lon:-81.3089},
+  {iata:"TPA",name:"Tampa Int'l",           lat:27.9755,lon:-82.5332},
+  {iata:"PBI",name:"Palm Beach Int'l",      lat:26.6832,lon:-80.0956},
+  {iata:"JAX",name:"Jacksonville Int'l",    lat:30.4941,lon:-81.6879},
+  {iata:"SAV",name:"Savannah/Hilton Head",  lat:32.1276,lon:-81.2021},
+  {iata:"RDU",name:"Raleigh-Durham",        lat:35.8776,lon:-78.7875},
+  {iata:"GSO",name:"Greensboro-Piedmont",   lat:36.0978,lon:-79.9373},
+  {iata:"BNA",name:"Nashville Int'l",       lat:36.1263,lon:-86.6774},
+  {iata:"MEM",name:"Memphis Int'l",         lat:35.0421,lon:-90.0032},
+  {iata:"MSY",name:"New Orleans Moisant",   lat:29.9934,lon:-90.2580},
+  {iata:"BHM",name:"Birmingham-Shuttlesworth",lat:33.5629,lon:-86.7535},
+  {iata:"SDF",name:"Louisville Int'l",      lat:38.1744,lon:-85.7360},
+  {iata:"LEX",name:"Lexington Blue Grass",  lat:38.0365,lon:-84.6059},
+  // ── US Midwest ────────────────────────────────────────────────────────
+  {iata:"ORD",name:"Chicago O'Hare",        lat:41.9742,lon:-87.9073},
+  {iata:"MDW",name:"Chicago Midway",        lat:41.7868,lon:-87.7522},
+  {iata:"DTW",name:"Detroit Metro",         lat:42.2162,lon:-83.3554},
+  {iata:"MSP",name:"Minneapolis-St Paul",   lat:44.8848,lon:-93.2223},
+  {iata:"STL",name:"St Louis Lambert",      lat:38.7487,lon:-90.3700},
+  {iata:"MCI",name:"Kansas City Int'l",     lat:39.2976,lon:-94.7139},
+  {iata:"CMH",name:"Columbus Int'l",        lat:39.9980,lon:-82.8919},
+  {iata:"IND",name:"Indianapolis Int'l",    lat:39.7173,lon:-86.2944},
+  {iata:"CLE",name:"Cleveland Hopkins",     lat:41.4117,lon:-81.8498},
+  {iata:"CVG",name:"Cincinnati/N. Kentucky",lat:39.0488,lon:-84.6678},
+  {iata:"GRR",name:"Grand Rapids Ford",     lat:42.8808,lon:-85.5228},
+  {iata:"MKE",name:"Milwaukee Mitchell",    lat:42.9472,lon:-87.8966},
+  {iata:"OMA",name:"Omaha Eppley",          lat:41.3032,lon:-95.8940},
+  // ── US South/Central ──────────────────────────────────────────────────
+  {iata:"DFW",name:"Dallas/Fort Worth",     lat:32.8998,lon:-97.0403},
+  {iata:"DAL",name:"Dallas Love Field",     lat:32.8471,lon:-96.8518},
+  {iata:"IAH",name:"Houston Intercontinental",lat:29.9902,lon:-95.3368},
+  {iata:"HOU",name:"Houston Hobby",         lat:29.6454,lon:-95.2789},
+  {iata:"AUS",name:"Austin-Bergstrom",      lat:30.1975,lon:-97.6664},
+  {iata:"SAT",name:"San Antonio Int'l",     lat:29.5337,lon:-98.4698},
+  {iata:"OKC",name:"Oklahoma City Will Rogers",lat:35.3931,lon:-97.6007},
+  {iata:"TUL",name:"Tulsa Int'l",           lat:36.1984,lon:-95.8881},
+  {iata:"LIT",name:"Little Rock Clinton",   lat:34.7294,lon:-92.2243},
+  // ── US West ───────────────────────────────────────────────────────────
+  {iata:"LAX",name:"Los Angeles Int'l",     lat:33.9425,lon:-118.4081},
+  {iata:"SFO",name:"San Francisco Int'l",   lat:37.6213,lon:-122.3790},
+  {iata:"SEA",name:"Seattle-Tacoma",        lat:47.4502,lon:-122.3088},
+  {iata:"DEN",name:"Denver Int'l",          lat:39.8561,lon:-104.6737},
+  {iata:"PHX",name:"Phoenix Sky Harbor",    lat:33.4373,lon:-112.0078},
+  {iata:"LAS",name:"Las Vegas Harry Reid",  lat:36.0840,lon:-115.1537},
+  {iata:"SAN",name:"San Diego Int'l",       lat:32.7336,lon:-117.1897},
+  {iata:"OAK",name:"Oakland Int'l",         lat:37.7213,lon:-122.2208},
+  {iata:"SJC",name:"San Jose Int'l",        lat:37.3626,lon:-121.9290},
+  {iata:"PDX",name:"Portland Int'l",        lat:45.5887,lon:-122.5975},
+  {iata:"SLC",name:"Salt Lake City",        lat:40.7884,lon:-111.9778},
+  {iata:"ABQ",name:"Albuquerque Int'l",     lat:35.0402,lon:-106.6090},
+  {iata:"TUS",name:"Tucson Int'l",          lat:32.1161,lon:-110.9410},
+  {iata:"ELP",name:"El Paso Int'l",         lat:31.8072,lon:-106.3779},
+  {iata:"BOI",name:"Boise Airport",         lat:43.5644,lon:-116.2228},
+  {iata:"BUR",name:"Hollywood Burbank",     lat:34.2007,lon:-118.3585},
+  {iata:"ONT",name:"Ontario Int'l",         lat:34.0560,lon:-117.6012},
+  {iata:"LGB",name:"Long Beach Airport",    lat:33.8177,lon:-118.1516},
+  {iata:"SMF",name:"Sacramento Int'l",      lat:38.6954,lon:-121.5908},
+  {iata:"RNO",name:"Reno-Tahoe Int'l",      lat:39.4991,lon:-119.7681},
+  // ── US Mountain/Pacific extras ────────────────────────────────────────
+  {iata:"GEG",name:"Spokane Int'l",         lat:47.6199,lon:-117.5339},
+  {iata:"ANC",name:"Anchorage Int'l",       lat:61.1743,lon:-149.9963},
+  {iata:"HNL",name:"Honolulu Int'l",        lat:21.3245,lon:-157.9251},
+  {iata:"OGG",name:"Maui Kahului",          lat:20.8986,lon:-156.4305},
+  {iata:"FAI",name:"Fairbanks Int'l",       lat:64.8151,lon:-147.8561},
+  // ── Canada ────────────────────────────────────────────────────────────
+  {iata:"YYZ",name:"Toronto Pearson",       lat:43.6777,lon:-79.6248},
+  {iata:"YVR",name:"Vancouver Int'l",       lat:49.1947,lon:-123.1839},
+  {iata:"YUL",name:"Montreal Trudeau",      lat:45.4706,lon:-73.7408},
+  {iata:"YYC",name:"Calgary Int'l",         lat:51.1315,lon:-114.0106},
+  {iata:"YEG",name:"Edmonton Int'l",        lat:53.3097,lon:-113.5796},
+  {iata:"YOW",name:"Ottawa Macdonald-Cartier",lat:45.3225,lon:-75.6692},
+  {iata:"YHZ",name:"Halifax Stanfield",     lat:44.8808,lon:-63.5086},
+  {iata:"YWG",name:"Winnipeg Richardson",   lat:49.9100,lon:-97.2398},
+  // ── Europe — UK & Ireland ─────────────────────────────────────────────
+  {iata:"LHR",name:"London Heathrow",       lat:51.4775,lon:-0.4614},
+  {iata:"LGW",name:"London Gatwick",        lat:51.1537,lon:-0.1821},
+  {iata:"STN",name:"London Stansted",       lat:51.8850,lon:0.2350},
+  {iata:"LTN",name:"London Luton",          lat:51.8747,lon:-0.3683},
+  {iata:"MAN",name:"Manchester Airport",    lat:53.3537,lon:-2.2750},
+  {iata:"EDI",name:"Edinburgh Airport",     lat:55.9500,lon:-3.3725},
+  {iata:"BHX",name:"Birmingham Airport",    lat:52.4539,lon:-1.7480},
+  {iata:"DUB",name:"Dublin Airport",        lat:53.4213,lon:-6.2701},
+  {iata:"BFS",name:"Belfast Int'l",         lat:54.6575,lon:-6.2158},
+  // ── Europe — Western ──────────────────────────────────────────────────
+  {iata:"CDG",name:"Paris Charles de Gaulle",lat:49.0097,lon:2.5479},
+  {iata:"ORY",name:"Paris Orly",            lat:48.7233,lon:2.3794},
+  {iata:"FRA",name:"Frankfurt Main",        lat:50.0379,lon:8.5622},
+  {iata:"MUC",name:"Munich Int'l",          lat:48.3537,lon:11.7860},
+  {iata:"AMS",name:"Amsterdam Schiphol",    lat:52.3086,lon:4.7639},
+  {iata:"BRU",name:"Brussels Zaventem",     lat:50.9014,lon:4.4844},
+  {iata:"ZRH",name:"Zurich Airport",        lat:47.4647,lon:8.5492},
+  {iata:"GVA",name:"Geneva Airport",        lat:46.2380,lon:6.1090},
+  {iata:"VIE",name:"Vienna Int'l",          lat:48.1102,lon:16.5697},
+  {iata:"MAD",name:"Madrid Barajas",        lat:40.4936,lon:-3.5668},
+  {iata:"BCN",name:"Barcelona El Prat",     lat:41.2974,lon:2.0833},
+  {iata:"LIS",name:"Lisbon Humberto Delgado",lat:38.7742,lon:-9.1342},
+  {iata:"FCO",name:"Rome Fiumicino",        lat:41.8003,lon:12.2389},
+  {iata:"MXP",name:"Milan Malpensa",        lat:45.6306,lon:8.7281},
+  {iata:"LIN",name:"Milan Linate",          lat:45.4455,lon:9.2767},
+  {iata:"ATH",name:"Athens Eleftherios Venizelos",lat:37.9364,lon:23.9445},
+  {iata:"PRG",name:"Prague Václav Havel",   lat:50.1008,lon:14.2600},
+  {iata:"BUD",name:"Budapest Ferihegy",     lat:47.4298,lon:19.2611},
+  {iata:"WAW",name:"Warsaw Chopin",         lat:52.1657,lon:20.9671},
+  {iata:"ARN",name:"Stockholm Arlanda",     lat:59.6519,lon:17.9186},
+  {iata:"OSL",name:"Oslo Gardermoen",       lat:60.1939,lon:11.1004},
+  {iata:"CPH",name:"Copenhagen Kastrup",    lat:55.6180,lon:12.6560},
+  {iata:"HEL",name:"Helsinki Vantaa",       lat:60.3172,lon:24.9633},
+  // ── Europe — Eastern & Russia ─────────────────────────────────────────
+  {iata:"SVO",name:"Moscow Sheremetyevo",   lat:55.9726,lon:37.4146},
+  {iata:"DME",name:"Moscow Domodedovo",     lat:55.4088,lon:37.9063},
+  {iata:"LED",name:"St Petersburg Pulkovo", lat:59.8003,lon:30.2625},
+  {iata:"KBP",name:"Kyiv Boryspil",         lat:50.3450,lon:30.8947},
+  {iata:"OTP",name:"Bucharest Henri Coanda",lat:44.5711,lon:26.0850},
+  {iata:"SOF",name:"Sofia Airport",         lat:42.6967,lon:23.4114},
+  {iata:"IST",name:"Istanbul Airport",      lat:41.2608,lon:28.7418},
+  {iata:"SAW",name:"Istanbul Sabiha",       lat:40.8983,lon:29.3092},
+  // ── Middle East ───────────────────────────────────────────────────────
+  {iata:"DXB",name:"Dubai Int'l",           lat:25.2528,lon:55.3644},
+  {iata:"AUH",name:"Abu Dhabi Int'l",       lat:24.4330,lon:54.6511},
+  {iata:"DOH",name:"Doha Hamad Int'l",      lat:25.2731,lon:51.6080},
+  {iata:"RUH",name:"Riyadh King Khalid",    lat:24.9576,lon:46.6988},
+  {iata:"JED",name:"Jeddah King Abdulaziz", lat:21.6796,lon:39.1565},
+  {iata:"TLV",name:"Tel Aviv Ben Gurion",   lat:32.0114,lon:34.8867},
+  {iata:"AMM",name:"Amman Queen Alia",      lat:31.7226,lon:35.9932},
+  {iata:"CAI",name:"Cairo Int'l",           lat:30.1219,lon:31.4056},
+  {iata:"BAH",name:"Bahrain Int'l",         lat:26.2708,lon:50.6336},
+  {iata:"KWI",name:"Kuwait Int'l",          lat:29.2267,lon:47.9689},
+  {iata:"MCT",name:"Muscat Int'l",          lat:23.5933,lon:58.2844},
+  // ── Asia-Pacific — East Asia ──────────────────────────────────────────
+  {iata:"PEK",name:"Beijing Capital",       lat:40.0799,lon:116.6031},
+  {iata:"PKX",name:"Beijing Daxing",        lat:39.5095,lon:116.4105},
+  {iata:"PVG",name:"Shanghai Pudong",       lat:31.1434,lon:121.8052},
+  {iata:"SHA",name:"Shanghai Hongqiao",     lat:31.1979,lon:121.3360},
+  {iata:"CAN",name:"Guangzhou Baiyun",      lat:23.3924,lon:113.2988},
+  {iata:"SZX",name:"Shenzhen Bao'an",       lat:22.6393,lon:113.8107},
+  {iata:"CTU",name:"Chengdu Tianfu",        lat:30.3124,lon:104.4440},
+  {iata:"HKG",name:"Hong Kong Int'l",       lat:22.3080,lon:113.9185},
+  {iata:"TPE",name:"Taipei Taoyuan",        lat:25.0777,lon:121.2328},
+  {iata:"ICN",name:"Seoul Incheon",         lat:37.4602,lon:126.4407},
+  {iata:"GMP",name:"Seoul Gimpo",           lat:37.5583,lon:126.7906},
+  {iata:"NRT",name:"Tokyo Narita",          lat:35.7647,lon:140.3864},
+  {iata:"HND",name:"Tokyo Haneda",          lat:35.5494,lon:139.7798},
+  {iata:"KIX",name:"Osaka Kansai",          lat:34.4272,lon:135.2440},
+  {iata:"NGO",name:"Nagoya Chubu",          lat:34.8583,lon:136.8050},
+  {iata:"FUK",name:"Fukuoka Airport",       lat:33.5858,lon:130.4508},
+  {iata:"CTS",name:"Sapporo New Chitose",   lat:42.7752,lon:141.6920},
+  // ── Asia-Pacific — Southeast & South Asia ─────────────────────────────
+  {iata:"SIN",name:"Singapore Changi",      lat:1.3644,lon:103.9915},
+  {iata:"KUL",name:"Kuala Lumpur Int'l",    lat:2.7456,lon:101.7099},
+  {iata:"BKK",name:"Bangkok Suvarnabhumi",  lat:13.6811,lon:100.7475},
+  {iata:"DMK",name:"Bangkok Don Mueang",    lat:13.9126,lon:100.6067},
+  {iata:"CGK",name:"Jakarta Soekarno-Hatta",lat:-6.1275,lon:106.6537},
+  {iata:"MNL",name:"Manila Ninoy Aquino",   lat:14.5086,lon:121.0194},
+  {iata:"SGN",name:"Ho Chi Minh City",      lat:10.8188,lon:106.6520},
+  {iata:"HAN",name:"Hanoi Noi Bai",         lat:21.2212,lon:105.8072},
+  {iata:"RGN",name:"Yangon Int'l",          lat:16.9073,lon:96.1332},
+  {iata:"BOM",name:"Mumbai Chhatrapati",    lat:19.0896,lon:72.8656},
+  {iata:"DEL",name:"New Delhi Indira Gandhi",lat:28.5562,lon:77.1000},
+  {iata:"BLR",name:"Bangalore Kempegowda",  lat:13.1979,lon:77.7063},
+  {iata:"MAA",name:"Chennai Int'l",         lat:12.9900,lon:80.1693},
+  {iata:"CCU",name:"Kolkata Netaji Subhash",lat:22.6547,lon:88.4467},
+  {iata:"HYD",name:"Hyderabad Rajiv Gandhi",lat:17.2313,lon:78.4298},
+  {iata:"CMB",name:"Colombo Bandaranaike",  lat:7.1808,lon:79.8841},
+  {iata:"DAC",name:"Dhaka Hazrat Shahjalal",lat:23.8433,lon:90.3979},
+  {iata:"KTM",name:"Kathmandu Tribhuvan",   lat:27.6966,lon:85.3591},
+  // ── Asia-Pacific — Oceania ────────────────────────────────────────────
+  {iata:"SYD",name:"Sydney Kingsford Smith",lat:-33.9399,lon:151.1753},
+  {iata:"MEL",name:"Melbourne Tullamarine", lat:-37.6690,lon:144.8410},
+  {iata:"BNE",name:"Brisbane Airport",      lat:-27.3842,lon:153.1175},
+  {iata:"PER",name:"Perth Airport",         lat:-31.9403,lon:115.9669},
+  {iata:"ADL",name:"Adelaide Airport",      lat:-34.9450,lon:138.5306},
+  {iata:"AKL",name:"Auckland Airport",      lat:-37.0082,lon:174.7917},
+  {iata:"CHC",name:"Christchurch Int'l",    lat:-43.4894,lon:172.5322},
+  {iata:"NAN",name:"Nadi Int'l Fiji",       lat:-17.7554,lon:177.4431},
+  // ── Latin America ─────────────────────────────────────────────────────
+  {iata:"MEX",name:"Mexico City Benito Juarez",lat:19.4363,lon:-99.0721},
+  {iata:"GDL",name:"Guadalajara Miguel Hidalgo",lat:20.5218,lon:-103.3112},
+  {iata:"MTY",name:"Monterrey Gen Mariano",  lat:25.7785,lon:-100.1069},
+  {iata:"CUN",name:"Cancún Int'l",           lat:21.0365,lon:-86.8771},
+  {iata:"GRU",name:"São Paulo Guarulhos",    lat:-23.4356,lon:-46.4731},
+  {iata:"CGH",name:"São Paulo Congonhas",    lat:-23.6261,lon:-46.6564},
+  {iata:"GIG",name:"Rio de Janeiro Galeão",  lat:-22.8099,lon:-43.2505},
+  {iata:"SDU",name:"Rio de Janeiro Santos Dumont",lat:-22.9105,lon:-43.1631},
+  {iata:"BSB",name:"Brasília Int'l",         lat:-15.8711,lon:-47.9186},
+  {iata:"BOG",name:"Bogotá El Dorado",       lat:4.7016,lon:-74.1469},
+  {iata:"LIM",name:"Lima Jorge Chávez",      lat:-12.0219,lon:-77.1143},
+  {iata:"SCL",name:"Santiago Arturo Merino", lat:-33.3930,lon:-70.7858},
+  {iata:"EZE",name:"Buenos Aires Ezeiza",    lat:-34.8222,lon:-58.5358},
+  {iata:"AEP",name:"Buenos Aires Aeroparque",lat:-34.5592,lon:-58.4156},
+  {iata:"UIO",name:"Quito Mariscal Sucre",   lat:-0.1292,lon:-78.3575},
+  {iata:"PTY",name:"Panama City Tocumen",    lat:9.0714,lon:-79.3835},
+  {iata:"SJO",name:"San José Juan Santamaría",lat:9.9939,lon:-84.2089},
+  {iata:"MDE",name:"Medellín El Dorado",     lat:6.1646,lon:-75.4231},
+  // ── Africa ────────────────────────────────────────────────────────────
+  {iata:"JNB",name:"Johannesburg OR Tambo",  lat:-26.1392,lon:28.2460},
+  {iata:"CPT",name:"Cape Town Int'l",        lat:-33.9649,lon:18.6017},
+  {iata:"NBO",name:"Nairobi Jomo Kenyatta",  lat:-1.3192,lon:36.9275},
+  {iata:"ADD",name:"Addis Ababa Bole",       lat:8.9779,lon:38.7993},
+  {iata:"LOS",name:"Lagos Murtala Muhammed", lat:6.5774,lon:3.3212},
+  {iata:"ABV",name:"Abuja Nnamdi Azikiwe",   lat:9.0068,lon:7.2632},
+  {iata:"ACC",name:"Accra Kotoka",           lat:5.6052,lon:-0.1668},
+  {iata:"CMN",name:"Casablanca Mohammed V",  lat:33.3675,lon:-7.5900},
+  {iata:"TUN",name:"Tunis-Carthage",         lat:36.8510,lon:10.2272},
+  {iata:"ALG",name:"Algiers Houari Boumediene",lat:36.6910,lon:3.2154},
+  {iata:"DKR",name:"Dakar Léopold Sédar Senghor",lat:14.7397,lon:-17.4902},
+  {iata:"EBB",name:"Entebbe Int'l",          lat:0.0424,lon:32.4435},
+  {iata:"DAR",name:"Dar es Salaam Julius Nyerere",lat:-6.8781,lon:39.2026},
+  {iata:"HRE",name:"Harare Robert Mugabe",   lat:-17.9318,lon:31.0928},
+  {iata:"LUN",name:"Lusaka Kenneth Kaunda",  lat:-15.3308,lon:28.4526},
 ];
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -400,7 +600,7 @@ function DetailPanel({ev,onClose,onGeneratePost,generating}) {
         </div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"14px"}}>
-        {[["REG",ev.reg||"N/A"],["CATEGORY",ev.category],["CARRIER",ev.carrier||"Independent"],["PHASE",ev.phase],["DATE",ev.date],["SOURCE",ev.source],["INJURIES",ev.injuries],["FATALITIES",ev.fatalities>0?`${ev.fatalities} FATAL`:"NONE"]].map(([k,v])=>(
+        {[["REG",ev.reg||"N/A"],["CATEGORY",ev.category||"—"],["CARRIER",ev.carrier||"Independent"],["PHASE",ev.phase||"—"],["DATE",ev.date],["SOURCE",ev.source],["INJURIES",ev.injuries||"Not reported"],["FATALITIES",ev.fatalities>0?`${ev.fatalities} FATAL`:"NONE"]].map(([k,v])=>(
           <div key={k} style={{background:C.bg0,border:`1px solid ${C.border}`,borderRadius:"4px",padding:"7px 9px"}}>
             <div style={{fontSize:"8px",color:C.muted,letterSpacing:"0.12em",fontFamily:"'Orbitron',monospace",marginBottom:"3px"}}>{k}</div>
             <div style={{fontSize:"11px",color:(k==="FATALITIES"&&ev.fatalities>0)?C.danger:C.text,fontFamily:"'Share Tech Mono',monospace",fontWeight:k==="FATALITIES"&&ev.fatalities>0?"bold":"normal"}}>{v}</div>
@@ -411,7 +611,7 @@ function DetailPanel({ev,onClose,onGeneratePost,generating}) {
         <div style={{fontSize:"8px",color:C.muted,letterSpacing:"0.12em",fontFamily:"'Orbitron',monospace",marginBottom:"5px"}}>LOCATION</div>
         <div style={{background:C.bg0,border:`1px solid ${C.border}`,borderRadius:"4px",padding:"9px"}}>
           <div style={{color:C.accent,fontSize:"12px",marginBottom:"3px"}}>📍 {ev.location}</div>
-          <div style={{fontSize:"10px",color:C.muted,fontFamily:"'Share Tech Mono',monospace"}}>{ev.lat.toFixed(4)}°N · {ev.lon.toFixed(4)}°{ev.lon<0?"W":"E"}</div>
+          {ev.lat!=null&&<div style={{fontSize:"10px",color:C.muted,fontFamily:"'Share Tech Mono',monospace"}}>{ev.lat.toFixed(4)}°{ev.lat>=0?"N":"S"} · {Math.abs(ev.lon).toFixed(4)}°{ev.lon<0?"W":"E"}</div>}
         </div>
       </div>
       <div>
@@ -567,38 +767,18 @@ function AIChatDrawer({open,onToggle,dashboardState}) {
         body:JSON.stringify({
           model:"claude-sonnet-4-20250514",
           max_tokens:1000,
-          stream:true,
           system:systemPrompt,
           messages:history,
         }),
       });
-      if(!res.ok) throw new Error(`API ${res.status}`);
-
-      const reader=res.body.getReader();
-      const decoder=new TextDecoder();
-      let buffer="";
-
-      while(true){
-        const{done,value}=await reader.read();
-        if(done) break;
-        buffer+=decoder.decode(value,{stream:true});
-        const lines=buffer.split("\n"); buffer=lines.pop();
-        for(const line of lines){
-          if(!line.startsWith("data: ")) continue;
-          const payload=line.slice(6).trim();
-          if(payload==="[DONE]") continue;
-          try{
-            const p=JSON.parse(payload);
-            if(p.type==="content_block_delta"&&p.delta?.text){
-              setMessages(m=>{
-                const updated=[...m];
-                updated[updated.length-1]={...updated[updated.length-1],content:updated[updated.length-1].content+p.delta.text};
-                return updated;
-              });
-            }
-          }catch{}
-        }
-      }
+      const data=await res.json();
+      if(!res.ok) throw new Error(data?.error||`API ${res.status}`);
+      const text=data?.content?.[0]?.text||"";
+      setMessages(m=>{
+        const updated=[...m];
+        updated[updated.length-1]={...updated[updated.length-1],content:text};
+        return updated;
+      });
     } catch(err) {
       setMessages(m=>{
         const updated=[...m];
@@ -696,7 +876,7 @@ export default function AviationDashboard() {
   const [searchText,setSearchText]=useState("");
   const [dateFrom,setDateFrom]=useState("");
   const [dateTo,setDateTo]=useState("");
-  const [eventTypes,setEventTypes]=useState({accident:true,incident:true,military:true,vip:true,live:true});
+  const [eventTypes,setEventTypes]=useState({accident:true,incident:true,military:true,vip:true,live:true,asrs:true,sdr:true});
   const [squawkFilter,setSquawkFilter]=useState([]);
   const [onGroundHide,setOnGroundHide]=useState(false);
 
@@ -705,6 +885,19 @@ export default function AviationDashboard() {
   const [apiStatus,setApiStatus]=useState("idle");
   const [lastUpdated,setLastUpdated]=useState(null);
   const [selectedEvent,setSelectedEvent]=useState(null);
+
+  // ── Live incident data (ASRS + SDR) ──────────────────────────────────────
+  const [incidents,setIncidents]=useState([]);
+  const [incidentsStatus,setIncidentsStatus]=useState("idle"); // idle|loading|ok|error
+  const [incidentsUpdated,setIncidentsUpdated]=useState(null);
+
+  // ── ACARS data ────────────────────────────────────────────────────────────
+  const [acarsMessages,setAcarsMessages]=useState([]);
+  const [acarsStatus,setAcarsStatus]=useState("idle");
+  const [acarsUpdated,setAcarsUpdated]=useState(null);
+  const [acarsAlerts,setAcarsAlerts]=useState([]); // AI-flagged messages
+  const [acarsAiRunning,setAcarsAiRunning]=useState(false);
+  const acarsApiAvailable=useRef(null); // null=unknown, true=ok, false=no key
 
   // ── Weather state ─────────────────────────────────────────────────────────
   const [delaysEnabled,setDelaysEnabled]=useState(false);
@@ -857,6 +1050,101 @@ export default function AviationDashboard() {
     return()=>clearInterval(iv);
   },[fetchFlights]);
 
+  /* ── Fetch incidents: ASRS + SDR ────────────────────────────────────────── */
+  const fetchIncidents=useCallback(async()=>{
+    setIncidentsStatus("loading");
+    try {
+      const [asrsRes,sdrRes]=await Promise.allSettled([
+        fetch("/api/asrs").then(r=>r.json()),
+        fetch("/api/sdr").then(r=>r.json()),
+      ]);
+      const asrsEvents=asrsRes.status==="fulfilled"?(asrsRes.value.events||[]):[];
+      const sdrEvents =sdrRes.status==="fulfilled" ?(sdrRes.value.events||[]) :[];
+      const combined=[...asrsEvents,...sdrEvents]
+        .filter(ev=>ev.lat!=null&&ev.lon!=null)
+        .sort((a,b)=>b.date.localeCompare(a.date));
+      setIncidents(combined);
+      setIncidentsStatus("ok");
+      setIncidentsUpdated(new Date());
+    } catch(err){
+      console.error("fetchIncidents error:",err);
+      setIncidentsStatus("error");
+    }
+  },[]);
+
+  useEffect(()=>{
+    fetchIncidents();
+    const iv=setInterval(fetchIncidents,30*60*1000);
+    return ()=>clearInterval(iv);
+  },[fetchIncidents]);
+
+  /* ── Fetch ACARS messages ────────────────────────────────────────────────── */
+  const fetchAcars=useCallback(async()=>{
+    if(acarsApiAvailable.current===false) return;
+    setAcarsStatus("loading");
+    try {
+      const data=await fetch("/api/acars").then(r=>r.json());
+      if(data.error?.includes("AIRFRAMES_API_KEY")){
+        acarsApiAvailable.current=false;
+        setAcarsStatus("nokey");
+        return;
+      }
+      acarsApiAvailable.current=true;
+      setAcarsMessages((data.messages||[]).slice(0,200));
+      setAcarsUpdated(new Date());
+      setAcarsStatus("ok");
+    } catch(err){
+      console.error("fetchAcars error:",err);
+      setAcarsStatus("error");
+    }
+  },[]);
+
+  useEffect(()=>{
+    fetchAcars();
+    const iv=setInterval(fetchAcars,2*60*1000);
+    return ()=>clearInterval(iv);
+  },[fetchAcars]);
+
+  /* ── ACARS AI triage ─────────────────────────────────────────────────────── */
+  const runAcarsAi=useCallback(async()=>{
+    if(acarsMessages.length===0||acarsAiRunning) return;
+    setAcarsAiRunning(true);
+    try {
+      const sample=acarsMessages.slice(0,30).map(m=>
+        `[${m.callsign}|${m.label||"?"}] ${m.text.slice(0,120)}`
+      ).join("\n");
+      const res=await fetch("/api/analyze",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:800,
+          system:`You are an aviation OSINT analyst. Analyze these ACARS messages for operationally significant events.
+Flag messages that indicate: emergencies, mechanical issues, diversions, medical events, fuel emergencies, ATC abnormalities, or other non-routine events.
+Respond ONLY with valid JSON: {"alerts":[{"id":"<callsign>","callsign":"<cs>","summary":"<1 sentence>","severity":"high|medium|low"}]}
+If nothing notable, respond: {"alerts":[]}`,
+          messages:[{role:"user",content:`Analyze these ACARS messages:\n${sample}`}],
+        }),
+      });
+      const data=await res.json();
+      const text=data?.content?.[0]?.text||"{}";
+      const parsed=JSON.parse(text.replace(/```json|```/g,"").trim());
+      if(parsed.alerts?.length>0) setAcarsAlerts(parsed.alerts);
+    } catch(err){
+      console.error("ACARS AI error:",err);
+    } finally {
+      setAcarsAiRunning(false);
+    }
+  },[acarsMessages,acarsAiRunning]);
+
+  // Run AI triage when new ACARS messages arrive (only if key is set)
+  useEffect(()=>{
+    if(acarsMessages.length>0&&acarsApiAvailable.current===true){
+      const t=setTimeout(runAcarsAi,3000);
+      return ()=>clearTimeout(t);
+    }
+  },[acarsMessages]); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ── Fetch Weather ───────────────────────────────────────────────────── */
   const fetchWeather=useCallback(async()=>{
     if(!delaysEnabled&&!turbulenceEnabled) return;
@@ -952,23 +1240,32 @@ export default function AviationDashboard() {
   },[delaysEnabled,weatherData,leafletReady]);
 
   /* ── Filtered data ───────────────────────────────────────────────────── */
-  const filteredIncidents=useMemo(()=>MOCK_INCIDENTS.filter(ev=>{
-    if(!eventTypes[ev.type]) return false;
+  const filteredIncidents=useMemo(()=>incidents.filter(ev=>{
+    // Source toggles: ASRS / SDR
+    if(ev.source==="ASRS"&&!eventTypes.asrs) return false;
+    if(ev.source==="SDR" &&!eventTypes.sdr)  return false;
+    // Type toggles (accident / incident / military / vip)
+    if(ev.type&&!eventTypes[ev.type]) return false;
     if(carrier!=="All Carriers"&&ev.carrier!==carrier) return false;
     if(aircraftCat!=="All Types"&&ev.category!==aircraftCat) return false;
     if(dateFrom&&ev.date<dateFrom) return false;
     if(dateTo&&ev.date>dateTo) return false;
-    if(searchText){const q=searchText.toLowerCase();if(!`${ev.aircraft} ${ev.carrier} ${ev.location} ${ev.description} ${ev.reg}`.toLowerCase().includes(q))return false;}
+    if(searchText){const q=searchText.toLowerCase();if(!`${ev.aircraft||""} ${ev.carrier||""} ${ev.location||""} ${ev.description||""}`.toLowerCase().includes(q))return false;}
     return true;
-  }),[eventTypes,carrier,aircraftCat,dateFrom,dateTo,searchText]);
+  }),[incidents,eventTypes,carrier,aircraftCat,dateFrom,dateTo,searchText]);
 
   const filteredFlights=useMemo(()=>flights.filter(s=>{
     if(onGroundHide&&s[8]) return false;
     if(squawkFilter.length>0&&!squawkFilter.includes(s[14])) return false;
     if(!eventTypes.live&&!EMERGENCY_SQUAWKS[s[14]]) return false;
+    if(carrier!=="All Carriers"){
+      const cs=(s[1]||"").trim().toUpperCase();
+      const mappedCarrier=CARRIER_CALLSIGN_MAP[cs.slice(0,3)];
+      if(mappedCarrier!==carrier) return false;
+    }
     if(searchText){const q=searchText.toLowerCase();if(!`${s[1]} ${s[2]} ${s[14]}`.toLowerCase().includes(q))return false;}
     return true;
-  }),[flights,squawkFilter,eventTypes,searchText,onGroundHide]);
+  }),[flights,squawkFilter,eventTypes,searchText,onGroundHide,carrier]);
 
   /* ── Flight markers ──────────────────────────────────────────────────── */
   useEffect(()=>{
@@ -1108,19 +1405,11 @@ export default function AviationDashboard() {
     const userMsg=`REGION: ${REGIONS[region]?.label}\nFILTERS: Aircraft=${aircraftCat}, Carrier=${carrier}\nDATE: ${dateFrom||"All"} to ${dateTo||"Present"}\nTOTAL: ${filteredIncidents.length} events\n\nEVENTS:\n${JSON.stringify(payload,null,2)}\n\nProduce your full analysis brief now.`;
 
     try{
-      const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1800,stream:true,system:ANALYSIS_PROMPTS[analysisMode],messages:[{role:"user",content:userMsg}]})});
-      if(!res.ok) throw new Error(`API ${res.status}`);
-      const reader=res.body.getReader();const decoder=new TextDecoder();let buffer="";
-      while(true){
-        const{done,value}=await reader.read();if(done)break;
-        buffer+=decoder.decode(value,{stream:true});
-        const lines=buffer.split("\n");buffer=lines.pop();
-        for(const line of lines){
-          if(!line.startsWith("data: "))continue;
-          const payload=line.slice(6).trim();if(payload==="[DONE]")continue;
-          try{const p=JSON.parse(payload);if(p.type==="content_block_delta"&&p.delta?.text)setAnalysisText(prev=>prev+p.delta.text);}catch{}
-        }
-      }
+      const res=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1800,system:ANALYSIS_PROMPTS[analysisMode],messages:[{role:"user",content:userMsg}]})});
+      const data=await res.json();
+      if(!res.ok) throw new Error(data?.error||`API ${res.status}`);
+      const text=data?.content?.[0]?.text||"";
+      setAnalysisText(text);
       setAnalysisStatus("done");
       sendNotif(
         `◈ Analysis Complete · ${analysisMode.toUpperCase()} BRIEF`,
@@ -1141,12 +1430,16 @@ export default function AviationDashboard() {
 
   const chatDashboardState={
     region,aircraftCat,carrier,dateFrom,dateTo,
-    filteredCount:filteredIncidents.length,accidents,incidents,
+    filteredCount:filteredIncidents.length,
+    incidentTotal:incidents.length,
     flightCount:flights.length,airborne,emergency,
     emgCallsigns:emgFlights.slice(0,5).map(s=>s[1]?.trim()||s[0]).join(", "),
     weatherActive:delaysEnabled||turbulenceEnabled,
     weatherLayers:[delaysEnabled?"Airport Delays":"",turbulenceEnabled?"Turbulence":""].filter(Boolean).join(", "),
-    topEvents:filteredIncidents.slice(0,6).map(e=>`- ${e.date}: ${e.aircraft} at ${e.location} (${e.type}/${e.severity}, src:${e.source})`).join("\n"),
+    dataSources:["ASRS","SDR"].filter(s=>incidentsStatus==="ok"),
+    acarsActive:acarsStatus==="ok",
+    acarsAlertCount:acarsAlerts.length,
+    topEvents:filteredIncidents.slice(0,6).map(e=>`- ${e.date}: ${e.aircraft||"Unknown"} at ${e.location||"Unknown"} (${e.type}/${e.severity}, src:${e.source})`).join("\n"),
   };
 
   /* ════════════════════════════════════════════════════════════════════════
@@ -1261,6 +1554,23 @@ export default function AviationDashboard() {
             ))}
           </FilterSection>
 
+          <FilterSection title="DATA SOURCES">
+            <div style={{display:"flex",flexDirection:"column",gap:"4px"}}>
+              {[["asrs","📋","ASRS Reports","#00b4ff",incidentsStatus],["sdr","🔧","FAA SDR","#ffb300",incidentsStatus]].map(([k,icon,label,color,status])=>(
+                <label key={k} style={{display:"flex",alignItems:"center",gap:"7px",cursor:"pointer",padding:"3px 0",fontSize:"11px"}}>
+                  <input type="checkbox" checked={eventTypes[k]} onChange={e=>setEventTypes(p=>({...p,[k]:e.target.checked}))} style={{accentColor:color,width:"12px",height:"12px"}}/>
+                  <span>{icon}</span>
+                  <span style={{color:C.text,flex:1}}>{label}</span>
+                  <span style={{fontSize:"8px",color:status==="ok"?C.safe:status==="error"?C.danger:status==="loading"?C.warn:C.muted,fontFamily:"'Share Tech Mono',monospace"}}>{status==="ok"?"LIVE":status==="error"?"ERR":status==="loading"?"…":"—"}</span>
+                </label>
+              ))}
+              {incidentsUpdated&&<div style={{fontSize:"9px",color:C.muted,fontFamily:"'Share Tech Mono',monospace",marginTop:"2px"}}>Updated: {incidentsUpdated.toLocaleTimeString()}</div>}
+              <button onClick={fetchIncidents} disabled={incidentsStatus==="loading"} style={{...btn,marginTop:"3px",width:"100%",fontSize:"9px",fontFamily:"'Orbitron',monospace",color:incidentsStatus==="loading"?C.muted:C.accent,border:`1px solid ${C.accent}33`}}>
+                {incidentsStatus==="loading"?"LOADING…":"⟳ REFRESH EVENTS"}
+              </button>
+            </div>
+          </FilterSection>
+
           <FilterSection title="AIRCRAFT CATEGORY">
             <select value={aircraftCat} onChange={e=>setAircraftCat(e.target.value)} style={sel}>
               {AIRCRAFT_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
@@ -1322,10 +1632,10 @@ export default function AviationDashboard() {
             </div>
           </FilterSection>
 
-          {/* Data sources */}
+          {/* Data sources legend */}
           <div style={{marginTop:"8px",padding:"10px",background:C.bg0,border:`1px solid ${C.border}`,borderRadius:"4px"}}>
-            <div style={{fontSize:"8px",fontFamily:"'Orbitron',monospace",color:C.muted,letterSpacing:"0.12em",marginBottom:"7px"}}>DATA SOURCES</div>
-            {[{dot:C.safe,label:"OpenSky Network (live ADS-B)"},{dot:C.warn,label:"NTSB Accident Database"},{dot:C.danger,label:"FAA Aviation Safety"},{dot:"#4499ff",label:"EASA Occurrence Reports"},{dot:C.vip,label:"DoD SPOT / Press Pool"},{dot:C.wxDelay,label:"FAA NASSTATUS (delays)"},{dot:C.wxTurb,label:"NOAA SIGMET/AIRMET (turbulence)"}].map((s,i)=>(
+            <div style={{fontSize:"8px",fontFamily:"'Orbitron',monospace",color:C.muted,letterSpacing:"0.12em",marginBottom:"7px"}}>ACTIVE FEEDS</div>
+            {[{dot:C.safe,label:"OpenSky Network (ADS-B)"},{dot:"#00b4ff",label:"NASA ASRS Reports"},{dot:"#ffb300",label:"FAA Service Difficulty Reports"},{dot:"#00e5ff",label:"airframes.io ACARS"},{dot:C.wxDelay,label:"FAA NASSTATUS (delays)"},{dot:C.wxTurb,label:"NOAA SIGMET/AIRMET"}].map((s,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:"6px",fontSize:"10px",color:C.muted,marginBottom:"3px"}}>
                 <div style={{width:"5px",height:"5px",borderRadius:"50%",background:s.dot,flexShrink:0}}/>{s.label}
               </div>
@@ -1394,26 +1704,27 @@ export default function AviationDashboard() {
 
           {/* Tabs */}
           <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-            {[["events","EVENTS",C.accent],["flights","FLIGHTS",C.accent],["analysis","ANALYSIS","#cc88ff"],["post","POST","#ff8c00"],["alerts","🔔","#22dd77"]].map(([id,label,color])=>(
+            {[["events","EVENTS",C.accent],["flights","FLIGHTS",C.accent],["acars","ACARS","#00e5ff"],["analysis","ANALYSIS","#cc88ff"],["post","POST","#ff8c00"],["alerts","🔔","#22dd77"]].map(([id,label,color])=>(
               <button key={id} onClick={()=>setActiveTab(id)} style={{flex:1,padding:"11px 0",cursor:"pointer",border:"none",background:activeTab===id?C.bg2:"transparent",color:activeTab===id?color:C.muted,fontFamily:"'Orbitron',monospace",fontSize:"7.5px",letterSpacing:"0.08em",borderBottom:activeTab===id?`2px solid ${color}`:"2px solid transparent",transition:"all 0.15s",position:"relative"}}>
                 {label}
                 {id==="analysis"&&analysisStatus==="loading"&&<span style={{position:"absolute",top:"3px",right:"3px",width:"6px",height:"6px",borderRadius:"50%",background:"#cc88ff",animation:"blink 0.6s step-end infinite"}}/>}
+                {id==="acars"&&acarsAlerts.length>0&&<span style={{position:"absolute",top:"3px",right:"3px",width:"6px",height:"6px",borderRadius:"50%",background:"#00e5ff",animation:"blink 1s step-end infinite"}}/>}
                 {id==="alerts"&&recentNotifs.length>0&&<span style={{position:"absolute",top:"3px",right:"3px",width:"6px",height:"6px",borderRadius:"50%",background:C.danger,animation:"blink 1.4s step-end infinite"}}/>}
               </button>
             ))}
           </div>
 
           {/* Panel header */}
-          {(activeTab==="events"||activeTab==="flights")&&(
+          {(activeTab==="events"||activeTab==="flights"||activeTab==="acars")&&(
             <div style={{padding:"9px 12px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
               <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:"10px",color:C.muted}}>
-                {activeTab==="events"?`${filteredIncidents.length} events · sorted by date`:`${filteredFlights.filter(s=>!s[8]).length} airborne · ${emgFlights.length} emergency`}
+                {activeTab==="events"?`${filteredIncidents.length} events · ASRS + SDR`:activeTab==="acars"?`${acarsMessages.length} messages · ${acarsAlerts.length} flagged by AI`:`${filteredFlights.filter(s=>!s[8]).length} airborne · ${emgFlights.length} emergency`}
               </div>
             </div>
           )}
 
           {/* Emergency strip */}
-          {emgFlights.length>0&&(activeTab==="events"||activeTab==="flights")&&(
+          {emgFlights.length>0&&(activeTab==="events"||activeTab==="flights"||activeTab==="acars")&&(
             <div style={{background:"#1a000088",borderBottom:`1px solid ${C.danger}44`,padding:"8px 12px",flexShrink:0}}>
               <div style={{fontFamily:"'Orbitron',monospace",fontSize:"9px",color:C.danger,letterSpacing:"0.12em",marginBottom:"6px",animation:"blink 1.4s step-end infinite"}}>
                 ⚠ {emgFlights.length} ACTIVE EMERGENCY SQUAWK{emgFlights.length>1?"S":""}
@@ -1440,11 +1751,24 @@ export default function AviationDashboard() {
 
             {/* EVENTS */}
             {activeTab==="events"&&(
-              filteredIncidents.length===0
-                ?<div style={{padding:"32px",textAlign:"center",color:C.muted,fontFamily:"'Share Tech Mono',monospace",fontSize:"11px"}}>NO EVENTS MATCH FILTERS</div>
-                :[...filteredIncidents].sort((a,b)=>b.date.localeCompare(a.date)).map(ev=>(
-                  <EventCard key={ev.id} ev={ev} selected={selectedEvent?.id===ev.id} onClick={()=>setSelectedEvent(ev)} onGeneratePost={generatePost} generating={generatingEventId===ev.id}/>
-                ))
+              incidentsStatus==="loading"&&incidents.length===0
+                ?<div style={{padding:"32px",textAlign:"center",color:C.muted,fontFamily:"'Share Tech Mono',monospace",fontSize:"11px",lineHeight:2}}>
+                    <div style={{animation:"blink 0.8s step-end infinite",fontSize:"18px",marginBottom:"8px"}}>📡</div>
+                    LOADING ASRS + SDR DATA…
+                  </div>
+                :incidentsStatus==="error"
+                  ?<div style={{padding:"24px",textAlign:"center",fontFamily:"'Share Tech Mono',monospace",fontSize:"11px",lineHeight:1.8}}>
+                      <div style={{color:C.danger,marginBottom:"8px"}}>⚠ DATA FEED ERROR</div>
+                      <div style={{color:C.muted,fontSize:"10px"}}>ASRS or SDR unavailable.<br/>Check API proxy logs in Vercel.</div>
+                      <button onClick={fetchIncidents} style={{...btn,marginTop:"10px",fontSize:"9px"}}>⟳ RETRY</button>
+                    </div>
+                  :filteredIncidents.length===0
+                    ?<div style={{padding:"32px",textAlign:"center",color:C.muted,fontFamily:"'Share Tech Mono',monospace",fontSize:"11px"}}>
+                        {incidents.length===0?"NO EVENTS LOADED":"NO EVENTS MATCH FILTERS"}
+                      </div>
+                    :[...filteredIncidents].sort((a,b)=>b.date.localeCompare(a.date)).map(ev=>(
+                        <EventCard key={ev.id} ev={ev} selected={selectedEvent?.id===ev.id} onClick={()=>setSelectedEvent(ev)} onGeneratePost={generatePost} generating={generatingEventId===ev.id}/>
+                      ))
             )}
 
             {/* FLIGHTS */}
@@ -1473,6 +1797,84 @@ export default function AviationDashboard() {
             )}
 
             {/* ANALYSIS */}
+            {/* ACARS TAB */}
+            {activeTab==="acars"&&(
+              <div style={{padding:"12px",display:"flex",flexDirection:"column",gap:"10px"}}>
+
+                {/* ACARS status bar */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:C.bg0,border:`1px solid ${C.border}`,borderRadius:"4px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"7px",fontSize:"10px",fontFamily:"'Share Tech Mono',monospace"}}>
+                    <div style={{width:"6px",height:"6px",borderRadius:"50%",background:acarsStatus==="ok"?"#00e5ff":acarsStatus==="error"?C.danger:acarsStatus==="loading"?C.warn:"#3a6080",animation:acarsStatus==="ok"?"pulse 2s ease-in-out infinite":acarsStatus==="loading"?"blink 0.8s step-end infinite":"none"}}/>
+                    {acarsStatus==="nokey"&&<span style={{color:C.warn}}>API KEY NOT SET</span>}
+                    {acarsStatus==="ok"&&<span style={{color:"#00e5ff"}}>{acarsMessages.length} MESSAGES · {acarsUpdated?.toLocaleTimeString()}</span>}
+                    {acarsStatus==="loading"&&<span style={{color:C.muted}}>FETCHING…</span>}
+                    {acarsStatus==="error"&&<span style={{color:C.danger}}>FEED ERROR</span>}
+                    {acarsStatus==="idle"&&<span style={{color:C.muted}}>STANDBY</span>}
+                  </div>
+                  <div style={{display:"flex",gap:"5px"}}>
+                    {acarsAiRunning&&<span style={{fontSize:"9px",color:"#00e5ff",fontFamily:"'Orbitron',monospace",animation:"blink 0.6s step-end infinite"}}>AI SCAN…</span>}
+                    <button onClick={fetchAcars} style={{...btn,fontSize:"9px",padding:"2px 8px",fontFamily:"'Orbitron',monospace",color:"#00e5ff",border:"1px solid #00e5ff33"}}>⟳</button>
+                  </div>
+                </div>
+
+                {/* No API key notice */}
+                {acarsStatus==="nokey"&&(
+                  <div style={{padding:"16px",background:C.bg0,border:`1px solid ${C.warn}44`,borderRadius:"6px",fontFamily:"'Share Tech Mono',monospace",fontSize:"11px",lineHeight:1.8,color:C.muted}}>
+                    <div style={{color:C.warn,fontWeight:"bold",marginBottom:"8px"}}>📡 ACARS SETUP REQUIRED</div>
+                    <div>ACARS data is provided by <span style={{color:C.accent}}>airframes.io</span></div>
+                    <div style={{marginTop:"6px"}}>1. Register free at <span style={{color:C.accent}}>airframes.io</span></div>
+                    <div>2. Copy your API key</div>
+                    <div>3. Add to Vercel: <span style={{color:"#00e5ff"}}>AIRFRAMES_API_KEY</span></div>
+                    <div>4. Redeploy — ACARS will activate automatically</div>
+                  </div>
+                )}
+
+                {/* AI alerts */}
+                {acarsAlerts.length>0&&(
+                  <div style={{background:"#00001a",border:"1px solid #00e5ff44",borderRadius:"6px",overflow:"hidden"}}>
+                    <div style={{padding:"7px 10px",background:"#00e5ff11",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontFamily:"'Orbitron',monospace",fontSize:"9px",color:"#00e5ff",letterSpacing:"0.1em"}}>AI FLAGGED · {acarsAlerts.length}</span>
+                      <button onClick={()=>setAcarsAlerts([])} style={{...btn,fontSize:"8px",padding:"1px 7px",color:C.muted}}>CLEAR</button>
+                    </div>
+                    {acarsAlerts.map((a,i)=>(
+                      <div key={i} style={{padding:"9px 10px",borderBottom:`1px solid #00e5ff22`,borderLeft:`3px solid ${a.severity==="high"?C.danger:a.severity==="medium"?C.warn:"#00e5ff"}`}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"3px"}}>
+                          <span style={{fontFamily:"'Orbitron',monospace",fontSize:"10px",color:"#00e5ff"}}>{a.callsign}</span>
+                          <span style={{fontSize:"8px",background:a.severity==="high"?`${C.danger}22`:a.severity==="medium"?`${C.warn}22`:"#00e5ff22",color:a.severity==="high"?C.danger:a.severity==="medium"?C.warn:"#00e5ff",padding:"1px 6px",borderRadius:"3px",fontFamily:"'Orbitron',monospace"}}>{a.severity?.toUpperCase()}</span>
+                        </div>
+                        <div style={{fontSize:"11px",color:C.text,fontFamily:"'Share Tech Mono',monospace",lineHeight:1.5}}>{a.summary}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Message feed */}
+                {acarsMessages.length===0&&acarsStatus!=="nokey"&&(
+                  <div style={{padding:"24px",textAlign:"center",color:C.muted,fontFamily:"'Share Tech Mono',monospace",fontSize:"11px"}}>
+                    {acarsStatus==="loading"?"FETCHING MESSAGES…":"NO MESSAGES — CHECK API KEY OR RETRY"}
+                  </div>
+                )}
+                {acarsMessages.map((m,i)=>{
+                  const isAlerted=acarsAlerts.some(a=>a.callsign===m.callsign);
+                  return (
+                    <div key={m.id||i} style={{padding:"8px 10px",background:isAlerted?"#00e5ff08":C.bg0,border:`1px solid ${isAlerted?"#00e5ff33":C.border}`,borderRadius:"4px",borderLeft:`3px solid ${isAlerted?"#00e5ff":C.border}`}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"3px"}}>
+                        <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
+                          <span style={{fontFamily:"'Orbitron',monospace",fontSize:"10px",color:"#00e5ff",fontWeight:"bold"}}>{m.callsign}</span>
+                          {m.label&&<span style={{fontSize:"8px",background:"#00e5ff18",color:"#00e5ff",padding:"1px 5px",borderRadius:"3px",fontFamily:"'Share Tech Mono',monospace"}}>LBL:{m.label}</span>}
+                          {m.freq&&<span style={{fontSize:"9px",color:C.muted,fontFamily:"'Share Tech Mono',monospace"}}>{m.freq}</span>}
+                        </div>
+                        <span style={{fontSize:"9px",color:C.muted,fontFamily:"'Share Tech Mono',monospace"}}>{new Date(m.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                      <div style={{fontSize:"11px",color:C.text,fontFamily:"'Share Tech Mono',monospace",lineHeight:1.5,wordBreak:"break-all"}}>{m.text.slice(0,200)}</div>
+                      {m.reg&&<div style={{fontSize:"9px",color:C.muted,marginTop:"2px",fontFamily:"'Share Tech Mono',monospace"}}>REG: {m.reg} · VIA: {m.station||"unknown"}</div>}
+                    </div>
+                  );
+                })}
+
+              </div>
+            )}
+
             {activeTab==="analysis"&&(
               <div style={{padding:"14px 12px",height:"100%",display:"flex",flexDirection:"column",gap:"10px"}}>
                 <div>

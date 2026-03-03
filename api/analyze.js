@@ -1,37 +1,39 @@
-// api/analyze.js — Anthropic proxy with streaming support
+// api/analyze.js — Anthropic proxy (non-streaming, reliable on Vercel serverless)
+// Streaming via res.write() is buffered by Vercel's nginx layer and never reaches
+// the browser. Non-streaming returns a complete JSON response once the model finishes.
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
 
-  const body = req.body;
-  const isStreaming = body.stream === true;
+  const body = { ...req.body, stream: false }; // force non-streaming
 
-  const upstream = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-  });
+  try {
+    const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(55000),
+    });
 
-  if (isStreaming) {
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    const reader = upstream.body.getReader();
-    const decoder = new TextDecoder();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(decoder.decode(value, { stream: true }));
-      }
-    } finally {
-      res.end();
-    }
-  } else {
     const data = await upstream.json();
-    res.status(upstream.status).json(data);
+
+    if (!upstream.ok) {
+      console.error("Anthropic API error:", upstream.status, data);
+      return res.status(upstream.status).json({
+        error: data?.error?.message || "Anthropic API error",
+        status: upstream.status,
+      });
+    }
+
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json(data);
+
+  } catch (err) {
+    console.error("analyze handler error:", err);
+    return res.status(500).json({ error: err.message || "Internal server error" });
   }
 }
