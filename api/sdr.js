@@ -153,9 +153,17 @@ export default async function handler(req, res) {
 
   const fetchedAt = new Date().toISOString();
 
-  // Query last 30 days of SDRs
-  const end   = new Date();
-  const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+  // Accept optional ?from=YYYY-MM-DD&to=YYYY-MM-DD for historical queries
+  // Default: last 365 days (SDR has good historical depth)
+  const fromParam = req.query?.from || req.query?.startDate;
+  const toParam   = req.query?.to   || req.query?.endDate;
+
+  let end   = toParam   ? new Date(toParam)   : new Date();
+  let start = fromParam ? new Date(fromParam)
+                        : new Date(end.getTime() - 365 * 24 * 60 * 60 * 1000);
+
+  if (isNaN(start.getTime())) start = new Date(end.getTime() - 365 * 24 * 60 * 60 * 1000);
+  if (isNaN(end.getTime()))   end   = new Date();
 
   const fmt = d =>
     `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,"0")}-${d.getDate().toString().padStart(2,"0")}`;

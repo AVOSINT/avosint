@@ -137,9 +137,18 @@ export default async function handler(req, res) {
 
   const fetchedAt = new Date().toISOString();
 
-  // Query last 90 days
-  const endDate   = new Date();
-  const startDate = new Date(endDate.getTime() - 90 * 24 * 60 * 60 * 1000);
+  // Accept optional ?from=YYYY-MM-DD&to=YYYY-MM-DD for historical queries
+  // Default: last 2 years (ASRS has a large backlog worth surfacing)
+  const fromParam = req.query?.from || req.query?.startDate;
+  const toParam   = req.query?.to   || req.query?.endDate;
+
+  const endDate   = toParam   ? new Date(toParam)   : new Date();
+  const startDate = fromParam ? new Date(fromParam)
+                              : new Date(endDate.getTime() - 730 * 24 * 60 * 60 * 1000);
+
+  // Clamp to valid dates
+  if (isNaN(startDate.getTime())) startDate = new Date(endDate.getTime() - 730 * 24 * 60 * 60 * 1000);
+  if (isNaN(endDate.getTime()))   endDate   = new Date();
 
   const fmt = d => `${(d.getMonth()+1).toString().padStart(2,"0")}/${d.getFullYear()}`;
 
