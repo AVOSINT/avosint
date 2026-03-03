@@ -1043,7 +1043,7 @@ export default function AviationDashboard() {
     setApiStatus("loading");
     try{
       const r=REGIONS[region];
-      let url="https://opensky-network.org/api/states/all";
+      let url="/api/opensky";
       if(r.bbox){const{lamin,lomin,lamax,lomax}=r.bbox;url+=`?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;}
       const resp=await fetch(url,{signal:AbortSignal.timeout(18000)});
       if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
