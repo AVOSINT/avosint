@@ -1,7 +1,7 @@
-// api/ntsb.js — NTSB Aviation Accident Database
+// api/ntsb.js — NTSB Aviation Accident/Incident Database
 // Source: NTSB Public API (api.ntsb.gov)
 //
-// SETUP REQUIRED (free, ~5 minutes):
+// SETUP (free, ~5 minutes):
 //   1. Go to https://developer.ntsb.gov → Sign Up
 //   2. Subscribe to the "Public" product
 //   3. Copy your subscription key from your Profile page
@@ -9,7 +9,8 @@
 //        NTSB_API_KEY = your-subscription-key
 //   5. Redeploy
 //
-// Without NTSB_API_KEY set, this proxy returns empty gracefully.
+// Field names confirmed from live API response via developer.ntsb.gov Try It tool.
+// Endpoint: GET https://api.ntsb.gov/public/api/Common/v1/GetCasesByDateRange
 
 const STATE_COORDS = {
   AL:[32.8,-86.8],AK:[64.2,-153.4],AZ:[34.3,-111.1],AR:[34.8,-92.2],
@@ -29,48 +30,31 @@ const STATE_COORDS = {
 };
 
 function coordsForState(abbr) {
-  const k=(abbr||"").trim().toUpperCase().slice(0,2);
-  return STATE_COORDS[k]||[null,null];
-}
-function severityFromInjuries(fatal,serious,minor) {
-  if(fatal>0) return "critical";
-  if(serious>0) return "high";
-  if(minor>0) return "medium";
-  return "low";
-}
-function categoryFromAircraft(make) {
-  const m=(make||"").toUpperCase();
-  if(/BOEING|AIRBUS|EMBRAER|BOMBARDIER|MCDONNELL/.test(m)) return "Commercial Jet";
-  if(/BELL|ROBINSON|SIKORSKY|EUROCOPTER|ENSTROM|HILLER/.test(m)) return "Helicopter";
-  return "Private/GA";
+  const k = (abbr || "").trim().toUpperCase().slice(0, 2);
+  return STATE_COORDS[k] || [null, null];
 }
 
-// NTSB API base — confirmed from developer.ntsb.gov portal
 const NTSB_BASE = "https://api.ntsb.gov/public/api/Common/v1";
 
-export default async function handler(req,res) {
-  if(req.method!=="GET") return res.status(405).end();
+export default async function handler(req, res) {
+  if (req.method !== "GET") return res.status(405).end();
 
   const apiKey = process.env.NTSB_API_KEY;
-  if(!apiKey) {
-    console.log("[NTSB] No NTSB_API_KEY set. Add it to Vercel env vars. Sign up free at developer.ntsb.gov.");
-    res.setHeader("Cache-Control","max-age=300");
-    return res.status(200).json({events:[],count:0,source:"NTSB",setupRequired:true});
+  if (!apiKey) {
+    console.log("[NTSB] No NTSB_API_KEY set. Sign up free at developer.ntsb.gov and add key to Vercel env vars.");
+    res.setHeader("Cache-Control", "max-age=300");
+    return res.status(200).json({ events: [], count: 0, source: "NTSB", setupRequired: true });
   }
 
-  const fromParam = req.query?.from;
-  const toParam   = req.query?.to;
-  const endDate   = toParam   ? new Date(toParam)   : new Date();
-  const startDate = fromParam ? new Date(fromParam)
-                              : new Date(endDate.getTime()-90*24*60*60*1000);
+  const endDate   = req.query?.to   ? new Date(req.query.to)   : new Date();
+  const startDate = req.query?.from ? new Date(req.query.from)
+                                    : new Date(endDate.getTime() - 90 * 24 * 60 * 60 * 1000);
 
-  const fmtDate = d=>`${(d.getMonth()+1).toString().padStart(2,"0")}/${d.getDate().toString().padStart(2,"0")}/${d.getFullYear()}`;
-  const fromStr = fmtDate(startDate);
-  const toStr   = fmtDate(endDate);
+  const fmt = d => `${(d.getMonth()+1).toString().padStart(2,"0")}/${d.getDate().toString().padStart(2,"0")}/${d.getFullYear()}`;
+  const fromStr = fmt(startDate);
+  const toStr   = fmt(endDate);
 
-  console.log(`[NTSB] Querying ${fromStr} → ${toStr}`);
-
-  // GetCasesByDateRange endpoint — visible in developer portal operations list
+  // Endpoint and param names confirmed from developer.ntsb.gov portal screenshot
   const url = `${NTSB_BASE}/GetCasesByDateRange?startDate=${encodeURIComponent(fromStr)}&endDate=${encodeURIComponent(toStr)}`;
   console.log(`[NTSB] Fetching: ${url}`);
 
@@ -85,79 +69,100 @@ export default async function handler(req,res) {
 
     const body = await resp.text();
     console.log(`[NTSB] Status=${resp.status} Length=${body.length}`);
-    console.log(`[NTSB] Snippet: ${body.slice(0,500)}`);
 
-    if(!resp.ok) {
-      console.error(`[NTSB] API error ${resp.status}`);
-      return res.status(200).json({events:[],count:0,source:"NTSB",error:`HTTP ${resp.status}`});
+    if (!resp.ok) {
+      console.error(`[NTSB] API error ${resp.status}: ${body.slice(0, 200)}`);
+      return res.status(200).json({ events: [], count: 0, source: "NTSB", error: `HTTP ${resp.status}` });
     }
 
-    let data;
-    try { data=JSON.parse(body); } catch(e) {
+    let rawCases;
+    try {
+      const data = JSON.parse(body);
+      rawCases = Array.isArray(data) ? data
+        : Array.isArray(data?.value)   ? data.value
+        : Array.isArray(data?.results) ? data.results
+        : Array.isArray(data?.items)   ? data.items
+        : [];
+    } catch (e) {
       console.error(`[NTSB] JSON parse error: ${e.message}`);
-      return res.status(200).json({events:[],count:0,source:"NTSB",error:"JSON parse failed"});
+      return res.status(200).json({ events: [], count: 0, source: "NTSB", error: "JSON parse failed" });
     }
 
-    // Log structure so we can adapt parser if needed
-    console.log(`[NTSB] Top-level keys: ${Object.keys(data).join(", ")}`);
-    const rawCases = Array.isArray(data) ? data
-      : Array.isArray(data?.cases)  ? data.cases
-      : Array.isArray(data?.value)  ? data.value
-      : Array.isArray(data?.results)? data.results
-      : Array.isArray(data?.items)  ? data.items
-      : [];
+    console.log(`[NTSB] ${rawCases.length} total cases`);
+    if (rawCases.length > 0) {
+      console.log(`[NTSB] Sample keys: ${Object.keys(rawCases[0]).join(", ")}`);
+    }
 
-    console.log(`[NTSB] ${rawCases.length} cases`);
-    if(rawCases.length>0) console.log(`[NTSB] First case keys: ${Object.keys(rawCases[0]).join(", ")}`);
+    const events = rawCases
+      // Filter to aviation only (API returns all modes: highway, marine, pipeline, etc.)
+      .filter(c => (c.mode || "").toLowerCase() === "aviation")
+      .map(c => {
+        // All field names confirmed from live API response
+        const mkey       = c.mkey               || "";
+        const ntsbNo     = c.ntsbnumber         || String(mkey);
+        const eventDate  = c.eventDate          || "";   // ISO: "2025-05-04"
+        const city       = c.city               || "";
+        const state      = c.stateOrRegion      || "";
+        const country    = c.country            || "";
+        const injLevel   = c.highestInjuryLevel || "None"; // "None","Minor","Serious","Fatal"
+        const eventType  = c.eventType          || "ACC";  // "ACC" or "INC"
+        const hazmat     = c.hazmatInvolved     || false;
+        const propDmg    = c.propertyDamage     || null;
+        const caseClosed = c.caseClosed         || false;
 
-    const events = rawCases.map((c,i)=>{
-      const get=(...names)=>{for(const n of names){const v=c[n]??c[n.toLowerCase()]??c[n.toUpperCase()];if(v!==undefined&&v!==null&&v!=="")return String(v);}return null;};
-      const dateRaw  = get("EventDate","eventDate","event_date","AccidentDate","date")||"";
-      const city     = get("City","city","EventCity","City")||"";
-      const state    = get("State","state","EventState")||"";
-      const make     = get("Make","make","AircraftMake","AcftMake")||"";
-      const model    = get("Model","model","AircraftModel","AcftModel")||"";
-      const reg      = get("Registration","NNumber","TailNumber","RegNo")||"";
-      const operator = get("Operator","AirCarrier","Carrier","operator")||"";
-      const fatal    = parseInt(get("FatalInjuryCount","Fatalities","fatal","FatalCount")||"0",10)||0;
-      const serious  = parseInt(get("SeriousInjuryCount","SeriousInjuries","serious","SeriousCount")||"0",10)||0;
-      const minor    = parseInt(get("MinorInjuryCount","MinorInjuries","minor","MinorCount")||"0",10)||0;
-      const phase    = get("BroadPhaseOfFlight","FlightPhase","Phase","phase")||"Unknown";
-      const narrative= get("ProbableCause","NarrativeFinal","Narrative","narrative","Synopsis")||"";
-      const damage   = get("AircraftDamage","Damage","damage")||"";
-      const ntsbNo   = get("NtsbNo","ntsbNo","AccidentNumber","EventId","CaseNumber","mkey","MKey")||`${i}`;
+        // API provides real coordinates — use directly
+        const lat = (c.latitude  != null && c.latitude  !== 0) ? c.latitude  : null;
+        const lon = (c.longitude != null && c.longitude !== 0) ? c.longitude : null;
 
-      let isoDate=new Date().toISOString().slice(0,10);
-      const dm1=dateRaw.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-      const dm2=dateRaw.match(/(\d{4})-(\d{2})-(\d{2})/);
-      if(dm2) isoDate=`${dm2[1]}-${dm2[2]}-${dm2[3]}`;
-      else if(dm1){const yr=dm1[3].length===2?`20${dm1[3]}`:dm1[3];isoDate=`${yr}-${dm1[1].padStart(2,"0")}-${dm1[2].padStart(2,"0")}`;}
+        // Fall back to state centroid only if API gave no coordinates
+        const [fallLat, fallLon] = coordsForState(state);
+        const finalLat = lat ?? fallLat;
+        const finalLon = lon ?? fallLon;
 
-      const location=[city,state].filter(Boolean).join(", ")||"Not reported";
-      const aircraft=[make,model].filter(Boolean).join(" ").slice(0,60)||"Unknown";
-      const injuries=fatal>0?`${fatal} fatal`:serious>0?`${serious} serious`:minor>0?`${minor} minor`:"None";
-      const [lat,lon]=coordsForState(state);
+        const severityMap = { fatal: "critical", serious: "high", minor: "medium", none: "low" };
+        const severity    = severityMap[(injLevel || "none").toLowerCase()] || "low";
 
-      return {
-        id:`NTSB-${ntsbNo}`,type:"accident",
-        severity:severityFromInjuries(fatal,serious,minor),
-        date:isoDate,aircraft,category:categoryFromAircraft(make),
-        reg:reg||null,carrier:operator||null,location,lat,lon,
-        injuries,fatalities:fatal,phase,
-        description:narrative
-          ?`${narrative.slice(0,500)}${narrative.length>500?"…":""}`
-          :`NTSB investigated accident. ${aircraft} at ${location}. ${injuries}. Damage: ${damage||"Unknown"}.`,
-        source:"NTSB",
-        url:`https://carol.ntsb.gov/?ntsbNo=${ntsbNo}`,
-      };
-    });
+        const isoDate  = (eventDate || "").slice(0, 10) || new Date().toISOString().slice(0, 10);
+        const location = [city, state, country === "USA" ? null : country].filter(Boolean).join(", ") || "Not reported";
 
-    console.log(`[NTSB] Returning ${events.length} events`);
-    res.setHeader("Cache-Control","max-age=3600");
-    return res.status(200).json({events,count:events.length,source:"NTSB"});
+        // Aircraft make/model/reg/phase require a separate GetAviationCase call per mkey.
+        // Not fetched here to avoid hundreds of extra API calls per page load.
+        const description = [
+          `NTSB ${eventType === "INC" ? "incident" : "accident"} investigation.`,
+          `Location: ${location}.`,
+          `Injury level: ${injLevel}.`,
+          hazmat    ? "Hazmat involved."              : null,
+          propDmg   ? `Property damage: ${propDmg}.` : null,
+          caseClosed ? "Case closed." : "Investigation ongoing.",
+        ].filter(Boolean).join(" ");
 
-  } catch(err) {
+        return {
+          id:         `NTSB-${ntsbNo}`,
+          type:       eventType === "INC" ? "incident" : "accident",
+          severity,
+          date:       isoDate,
+          aircraft:   "See NTSB report",
+          category:   "Aviation",
+          reg:        null,
+          carrier:    null,
+          location,
+          lat:        finalLat,
+          lon:        finalLon,
+          injuries:   injLevel,
+          fatalities: injLevel.toLowerCase() === "fatal" ? 1 : 0,
+          phase:      "Not reported",
+          description,
+          source:     "NTSB",
+          url:        `https://carol.ntsb.gov/?ntsbNo=${encodeURIComponent(ntsbNo)}`,
+        };
+      });
+
+    console.log(`[NTSB] Returning ${events.length} aviation events`);
+    res.setHeader("Cache-Control", "max-age=3600");
+    return res.status(200).json({ events, count: events.length, source: "NTSB" });
+
+  } catch (err) {
     console.error(`[NTSB] Error: ${err.message}`);
-    return res.status(200).json({events:[],count:0,source:"NTSB",error:err.message});
+    return res.status(200).json({ events: [], count: 0, source: "NTSB", error: err.message });
   }
 }
