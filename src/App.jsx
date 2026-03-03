@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { SpeedInsights } from "@vercel/speed-insights/react";
 
 /* ══════════════════════════════════════════════════════════════════════════════
    CONSTANTS
@@ -1424,8 +1423,7 @@ If nothing notable, respond: {"alerts":[]}`,
   /* ── Stats & chat context ────────────────────────────────────────────── */
   const airborne=flights.filter(s=>!s[8]).length;
   const emergency=flights.filter(s=>EMERGENCY_SQUAWKS[s[14]]).length;
-  const accidents=filteredIncidents.filter(e=>e.type==="accident").length;
-  const incidents=filteredIncidents.filter(e=>e.type==="incident").length;
+
   const emgFlights=flights.filter(s=>EMERGENCY_SQUAWKS[s[14]]);
 
   const chatDashboardState={
@@ -2081,7 +2079,6 @@ If nothing notable, respond: {"alerts":[]}`,
 
       {/* ══ AI CHAT DRAWER ══════════════════════════════════════════════════ */}
       <AIChatDrawer open={chatOpen} onToggle={()=>setChatOpen(v=>!v)} dashboardState={chatDashboardState}/>
-      <SpeedInsights />
 
     </div>
   );
