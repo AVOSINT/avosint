@@ -481,7 +481,7 @@ CURRENT DASHBOARD STATE:
 • Aircraft filter: ${state.aircraftCat}
 • Carrier filter: ${state.carrier}
 • Date range: ${state.dateFrom||"All dates"} → ${state.dateTo||"Present"}
-• Events visible: ${state.filteredCount} total (source: ASRS + SDR)
+• Events visible: ${state.filteredCount} total (source: NTSB + SDR)
 • Live aircraft tracked: ${state.flightCount.toLocaleString()} (${state.airborne.toLocaleString()} airborne)
 • Active emergency squawks: ${state.emergency > 0 ? state.emergency + " active" : "None"}
 ${state.emergency > 0 ? "• Emergency callsigns: " + state.emgCallsigns : ""}
@@ -882,7 +882,7 @@ export default function AviationDashboard() {
   const [searchText,setSearchText]=useState("");
   const [dateFrom,setDateFrom]=useState("");
   const [dateTo,setDateTo]=useState("");
-  const [eventTypes,setEventTypes]=useState({accident:true,incident:true,military:true,vip:true,live:true,asrs:true,sdr:true,asias:true});
+  const [eventTypes,setEventTypes]=useState({accident:true,incident:true,military:true,vip:true,live:true,ntsb:true,sdr:true,asias:true});
   const [squawkFilter,setSquawkFilter]=useState([]);
   const [onGroundHide,setOnGroundHide]=useState(false);
 
@@ -892,12 +892,12 @@ export default function AviationDashboard() {
   const [lastUpdated,setLastUpdated]=useState(null);
   const [selectedEvent,setSelectedEvent]=useState(null);
 
-  // ── Live incident data (ASRS + SDR + ASIAS) ─────────────────────────────
+  // ── Live incident data (NTSB + SDR + ASIAS) ─────────────────────────────
   const [incidents,setIncidents]=useState([]);
   const [incidentsStatus,setIncidentsStatus]=useState("idle"); // idle|loading|ok|error
   const [incidentsUpdated,setIncidentsUpdated]=useState(null);
   // Per-source status so sidebar can show individual health
-  const [asrsStatus,setAsrsStatus]=useState("idle");
+  const [ntsbStatus,setNtsbStatus]=useState("idle");
   const [sdrStatus,setSdrStatus]=useState("idle");
   const [asiasStatus,setAsiasStatus]=useState("idle");
 
@@ -1060,33 +1060,33 @@ export default function AviationDashboard() {
     return()=>clearInterval(iv);
   },[fetchFlights]);
 
-  /* ── Fetch incidents: ASRS + SDR ────────────────────────────────────────── */
+  /* ── Fetch incidents: NTSB + SDR ────────────────────────────────────────── */
   // fetchIncidents accepts optional date overrides for historical queries.
   // IMPORTANT: ASIAS data is always limited to the last 10 business days
   // regardless of the date range requested — this is an FAA constraint.
-  // ASRS and SDR will honour the full requested date range.
+  // NTSB and SDR will honour the full requested date range.
   const fetchIncidents=useCallback(async(fromDate,toDate)=>{
     setIncidentsStatus("loading");
-    setAsrsStatus("loading");
+    setNtsbStatus("loading");
     setSdrStatus("loading");
     setAsiasStatus("loading");
     try {
       const qFrom=fromDate||"";
       const qTo  =toDate  ||"";
       const qs   =qFrom||qTo?`?from=${encodeURIComponent(qFrom)}&to=${encodeURIComponent(qTo)}`:"";
-      const [asrsRes,sdrRes,asiasRes]=await Promise.allSettled([
-        fetch(`/api/asrs${qs}`).then(r=>r.json()),
+      const [ntsbRes,sdrRes,asiasRes]=await Promise.allSettled([
+        fetch(`/api/ntsb${qs}`).then(r=>r.json()),
         fetch(`/api/sdr${qs}` ).then(r=>r.json()),
         fetch("/api/asias"    ).then(r=>r.json()), // ASIAS ignores date range — 10bd window only
       ]);
-      const asrsEvents =asrsRes.status==="fulfilled" ?(asrsRes.value.events ||[]):[];
+      const ntsbEvents =ntsbRes.status==="fulfilled" ?(ntsbRes.value.events ||[]):[];
       const sdrEvents  =sdrRes.status==="fulfilled"  ?(sdrRes.value.events  ||[]):[];
       const asiasEvents=asiasRes.status==="fulfilled"?(asiasRes.value.events||[]):[];
-      setAsrsStatus (asrsRes.status==="fulfilled"  && !asrsRes.value.error  ?"ok":"error");
+      setNtsbStatus (ntsbRes.status==="fulfilled"  && !ntsbRes.value.error  ?"ok":"error");
       setSdrStatus  (sdrRes.status==="fulfilled"   && !sdrRes.value.error   ?"ok":"error");
       setAsiasStatus(asiasRes.status==="fulfilled" && !asiasRes.value.error ?"ok":"error");
-      // Merge and deduplicate (ASIAS may overlap ASRS on recent events)
-      const allEvents=[...asiasEvents,...asrsEvents,...sdrEvents];
+      // Merge and deduplicate (ASIAS may overlap NTSB on recent events)
+      const allEvents=[...asiasEvents,...ntsbEvents,...sdrEvents];
       const seen=new Set();
       const combined=allEvents
         .filter(ev=>{ const k=`${ev.date}-${ev.aircraft}-${ev.location}`; if(seen.has(k))return false; seen.add(k); return true; })
@@ -1269,8 +1269,8 @@ If nothing notable, respond: {"alerts":[]}`,
 
   /* ── Filtered data ───────────────────────────────────────────────────── */
   const filteredIncidents=useMemo(()=>incidents.filter(ev=>{
-    // Source toggles: ASRS / SDR
-    if(ev.source==="ASRS" &&!eventTypes.asrs)  return false;
+    // Source toggles: NTSB / SDR
+    if(ev.source==="NTSB" &&!eventTypes.ntsb)  return false;
     if(ev.source==="SDR"  &&!eventTypes.sdr)   return false;
     if(ev.source==="ASIAS"&&!eventTypes.asias)  return false;
     // Type toggles (accident / incident / military / vip)
@@ -1490,7 +1490,7 @@ If nothing notable, respond: {"alerts":[]}`,
     emgCallsigns:emgFlights.slice(0,5).map(s=>s[1]?.trim()||s[0]).join(", "),
     weatherActive:delaysEnabled||turbulenceEnabled,
     weatherLayers:[delaysEnabled?"Airport Delays":"",turbulenceEnabled?"Turbulence":""].filter(Boolean).join(", "),
-    dataSources:[asrsStatus==="ok"?"ASRS":null,sdrStatus==="ok"?"SDR":null,asiasStatus==="ok"?"ASIAS (10bd)":null].filter(Boolean),
+    dataSources:[ntsbStatus==="ok"?"NTSB":null,sdrStatus==="ok"?"SDR":null,asiasStatus==="ok"?"ASIAS (10bd)":null].filter(Boolean),
     acarsActive:acarsStatus==="ok",
     acarsAlertCount:acarsAlerts.length,
     topEvents:filteredIncidents.slice(0,6).map(e=>`- ${e.date}: ${e.aircraft||"Unknown"} at ${e.location||"Unknown"} (${e.type}/${e.severity}, src:${e.source})`).join("\n"),
@@ -1595,7 +1595,7 @@ If nothing notable, respond: {"alerts":[]}`,
           {/* ── Reset all filters ─────────────────────────────────────── */}
           <button onClick={()=>{
             setRegion("global");
-            setEventTypes({accident:true,incident:true,military:true,vip:true,live:true,asrs:true,sdr:true,asias:true});
+            setEventTypes({accident:true,incident:true,military:true,vip:true,live:true,ntsb:true,sdr:true,asias:true});
             setCarrier("All Carriers");
             setAircraftCat("All Types");
             setSquawkFilter([]);
@@ -1627,7 +1627,7 @@ If nothing notable, respond: {"alerts":[]}`,
           <FilterSection title="DATA SOURCES">
             <div style={{display:"flex",flexDirection:"column",gap:"4px"}}>
               {[
-                ["asrs", "📋","ASRS Reports",  "#00b4ff", asrsStatus ],
+                ["ntsb", "📋","NTSB Accidents", "#00b4ff", ntsbStatus ],
                 ["sdr",  "🔧","FAA SDR",       "#ffb300", sdrStatus  ],
                 ["asias","🚨","FAA ASIAS",      "#ff6644", asiasStatus],
               ].map(([k,icon,label,color,status])=>(
@@ -1689,7 +1689,7 @@ If nothing notable, respond: {"alerts":[]}`,
               {(dateFrom||dateTo)&&(
                 <div style={{padding:"5px 7px",background:"#1a0800",border:"1px solid #ff664433",borderRadius:"3px",fontSize:"9px",color:"#ff9966",fontFamily:"'Share Tech Mono',monospace",lineHeight:1.5}}>
                   ⏱ <strong style={{color:"#ffaa77"}}>ASIAS data:</strong> always last 10 business days only — date range does not apply to ASIAS.<br/>
-                  ASRS + SDR will search the selected range.
+                  NTSB + SDR will search the selected range.
                 </div>
               )}
               <div style={{display:"flex",gap:"5px",marginTop:"2px"}}>
@@ -1727,7 +1727,7 @@ If nothing notable, respond: {"alerts":[]}`,
           {/* Data sources legend */}
           <div style={{marginTop:"8px",padding:"10px",background:C.bg0,border:`1px solid ${C.border}`,borderRadius:"4px"}}>
             <div style={{fontSize:"8px",fontFamily:"'Orbitron',monospace",color:C.muted,letterSpacing:"0.12em",marginBottom:"7px"}}>ACTIVE FEEDS</div>
-            {[{dot:C.safe,label:"OpenSky Network (ADS-B)"},{dot:"#00b4ff",label:"NASA ASRS Reports"},{dot:"#ffb300",label:"FAA Service Difficulty Reports"},{dot:"#ff6644",label:"FAA ASIAS Preliminary (10bd)"},{dot:"#00e5ff",label:"airframes.io ACARS"},{dot:C.wxDelay,label:"FAA NASSTATUS (delays)"},{dot:C.wxTurb,label:"NOAA SIGMET/AIRMET"}].map((s,i)=>(
+            {[{dot:C.safe,label:"OpenSky Network (ADS-B)"},{dot:"#00b4ff",label:"NTSB Accidents Reports"},{dot:"#ffb300",label:"FAA Service Difficulty Reports"},{dot:"#ff6644",label:"FAA ASIAS Preliminary (10bd)"},{dot:"#00e5ff",label:"airframes.io ACARS"},{dot:C.wxDelay,label:"FAA NASSTATUS (delays)"},{dot:C.wxTurb,label:"NOAA SIGMET/AIRMET"}].map((s,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:"6px",fontSize:"10px",color:C.muted,marginBottom:"3px"}}>
                 <div style={{width:"5px",height:"5px",borderRadius:"50%",background:s.dot,flexShrink:0}}/>{s.label}
               </div>
@@ -1810,7 +1810,7 @@ If nothing notable, respond: {"alerts":[]}`,
           {(activeTab==="events"||activeTab==="flights"||activeTab==="acars")&&(
             <div style={{padding:"9px 12px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
               <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:"10px",color:C.muted}}>
-                {activeTab==="events"?`${filteredIncidents.length} events · ASRS + SDR + ASIAS`:activeTab==="acars"?`${acarsMessages.length} messages · ${acarsAlerts.length} flagged by AI`:`${filteredFlights.filter(s=>!s[8]).length} airborne · ${emgFlights.length} emergency`}
+                {activeTab==="events"?`${filteredIncidents.length} events · NTSB + SDR + ASIAS`:activeTab==="acars"?`${acarsMessages.length} messages · ${acarsAlerts.length} flagged by AI`:`${filteredFlights.filter(s=>!s[8]).length} airborne · ${emgFlights.length} emergency`}
               </div>
             </div>
           )}
@@ -1846,7 +1846,7 @@ If nothing notable, respond: {"alerts":[]}`,
               incidentsStatus==="loading"&&incidents.length===0
                 ?<div style={{padding:"32px",textAlign:"center",color:C.muted,fontFamily:"'Share Tech Mono',monospace",fontSize:"11px",lineHeight:2}}>
                     <div style={{animation:"blink 0.8s step-end infinite",fontSize:"18px",marginBottom:"8px"}}>📡</div>
-                    LOADING ASRS + SDR + ASIAS DATA…
+                    LOADING NTSB + SDR + ASIAS DATA…
                   </div>
                 // Only show error block when NO events at all — partial source failures still show what loaded
                 :incidentsStatus==="error"&&incidents.length===0
