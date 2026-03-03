@@ -481,7 +481,7 @@ CURRENT DASHBOARD STATE:
 • Aircraft filter: ${state.aircraftCat}
 • Carrier filter: ${state.carrier}
 • Date range: ${state.dateFrom||"All dates"} → ${state.dateTo||"Present"}
-• Events visible: ${state.filteredCount} total (${state.accidents} accidents, ${state.incidents} incidents)
+• Events visible: ${state.filteredCount} total (source: ASRS + SDR)
 • Live aircraft tracked: ${state.flightCount.toLocaleString()} (${state.airborne.toLocaleString()} airborne)
 • Active emergency squawks: ${state.emergency > 0 ? state.emergency + " active" : "None"}
 ${state.emergency > 0 ? "• Emergency callsigns: " + state.emgCallsigns : ""}
@@ -1480,7 +1480,7 @@ If nothing notable, respond: {"alerts":[]}`,
         <div style={{display:"flex",alignItems:"center"}}>
           <StatPill label="AIRBORNE"  value={airborne}  color={C.safe}/>
           <StatPill label="EMERGENCY" value={emergency}  color={C.danger} blink/>
-          <StatPill label="ACCIDENTS" value={accidents}  color="#ff5533"/>
+          <StatPill label="EVENTS" value={filteredIncidents.length} color="#ff5533"/>
           <StatPill label="INCIDENTS" value={incidents}  color={C.warn}/>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
