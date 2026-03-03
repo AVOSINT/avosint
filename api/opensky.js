@@ -8,19 +8,14 @@ const TOKEN_URL =
 let cachedToken = null;
 let tokenExpiry  = 0;
 
-async function getAccessToken() {
+async function fetchTokenOnce() {
   const clientId     = process.env.OPENSKY_CLIENT_ID;
   const clientSecret = process.env.OPENSKY_CLIENT_SECRET;
 
   if (!clientId || !clientSecret) {
-    console.error("[opensky] OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET not set — cannot authenticate.");
+    console.error("[opensky] OPENSKY_CLIENT_ID / OPENSKY_CLIENT_SECRET not set.");
     throw new Error("OpenSky credentials not configured. Add OPENSKY_CLIENT_ID and OPENSKY_CLIENT_SECRET to Vercel environment variables.");
   }
-
-  // Reuse cached token if still valid (with 60 s buffer)
-  if (cachedToken && Date.now() < tokenExpiry - 60_000) return cachedToken;
-
-  console.log("[opensky] Fetching new OAuth2 token…");
 
   const params = new URLSearchParams({
     grant_type:    "client_credentials",
@@ -32,7 +27,7 @@ async function getAccessToken() {
     method:  "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body:    params.toString(),
-    signal:  AbortSignal.timeout(10000),
+    signal:  AbortSignal.timeout(25000),
   });
 
   if (!resp.ok) {
@@ -41,7 +36,31 @@ async function getAccessToken() {
     throw new Error(`OpenSky token request failed: HTTP ${resp.status}`);
   }
 
-  const json  = await resp.json();
+  return resp.json();
+}
+
+async function getAccessToken() {
+  // Reuse cached token if still valid (with 60 s buffer)
+  if (cachedToken && Date.now() < tokenExpiry - 60_000) {
+    console.log("[opensky] Using cached token.");
+    return cachedToken;
+  }
+
+  console.log("[opensky] Fetching new OAuth2 token…");
+
+  // Retry once on timeout
+  let json;
+  try {
+    json = await fetchTokenOnce();
+  } catch (err) {
+    if (err.name === "TimeoutError" || /timeout/i.test(err.message)) {
+      console.warn("[opensky] Token fetch timed out, retrying…");
+      json = await fetchTokenOnce();
+    } else {
+      throw err;
+    }
+  }
+
   cachedToken = json.access_token;
   tokenExpiry = Date.now() + json.expires_in * 1000;
   console.log(`[opensky] Token obtained, expires in ${json.expires_in}s`);
@@ -66,7 +85,7 @@ export default async function handler(req, res) {
 
     const resp = await fetch(apiBase.toString(), {
       headers: { Authorization: `Bearer ${token}` },
-      signal:  AbortSignal.timeout(18000),
+      signal:  AbortSignal.timeout(20000),
     });
 
     if (!resp.ok) {
@@ -74,7 +93,7 @@ export default async function handler(req, res) {
       throw new Error(`OpenSky HTTP ${resp.status}`);
     }
 
-    const data = await resp.json();
+    const data  = await resp.json();
     const count = (data.states || []).length;
     console.log(`[opensky] OK — ${count} state vectors returned`);
     res.status(200).json(data);
