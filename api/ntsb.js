@@ -46,7 +46,7 @@ function categoryFromAircraft(make) {
 }
 
 // NTSB API base — confirmed from developer.ntsb.gov portal
-const NTSB_BASE = "https://api.ntsb.gov/public/api/Aviation/v1";
+const NTSB_BASE = "https://api.ntsb.gov/public/api/Common/v1";
 
 export default async function handler(req,res) {
   if(req.method!=="GET") return res.status(405).end();
@@ -71,7 +71,7 @@ export default async function handler(req,res) {
   console.log(`[NTSB] Querying ${fromStr} → ${toStr}`);
 
   // GetCasesByDateRange endpoint — visible in developer portal operations list
-  const url = `${NTSB_BASE}/GetCasesByDateRange?fromDate=${encodeURIComponent(fromStr)}&toDate=${encodeURIComponent(toStr)}`;
+  const url = `${NTSB_BASE}/GetCasesByDateRange?startDate=${encodeURIComponent(fromStr)}&endDate=${encodeURIComponent(toStr)}`;
   console.log(`[NTSB] Fetching: ${url}`);
 
   try {
