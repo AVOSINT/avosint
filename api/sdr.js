@@ -1,6 +1,6 @@
 // api/sdr.js — FAA Service Difficulty Reports
-// Previous endpoints at av-info.faa.gov/sdrx/ all returned 404.
-// This version discovers the correct URL and logs everything.
+// Correct URL confirmed: https://sdrs.faa.gov/Query.aspx
+// This is an ASP.NET ASPX app — requires ViewState extraction before POST.
 
 const STATE_COORDS = {
   AL:[32.8,-86.8],AK:[64.2,-153.4],AZ:[34.3,-111.1],AR:[34.8,-92.2],
@@ -22,14 +22,15 @@ const AIRPORT_COORDS = {
   DEN:[39.86,-104.67],JFK:[40.64,-73.78],SFO:[37.62,-122.38],PHX:[33.44,-112.01],
   SEA:[47.45,-122.31],MIA:[25.80,-80.29],BOS:[42.37,-71.01],IAH:[29.99,-95.34],
 };
-
 function coordsFor(text) {
-  if (!text) return [null,null];
+  if(!text) return [null,null];
   const up=text.toUpperCase();
   for(const [k,v] of Object.entries(AIRPORT_COORDS)){if(up.includes(k))return v;}
-  for(const [k,v] of Object.entries(STATE_COORDS)){if(up.includes(` ${k} `)||up.endsWith(k))return v;}
+  for(const [k,v] of Object.entries(STATE_COORDS)){if(up.includes(` ${k}`)||up.endsWith(k))return v;}
   return [null,null];
 }
+
+const QUERY_URL = "https://sdrs.faa.gov/Query.aspx";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).end();
@@ -39,122 +40,174 @@ export default async function handler(req, res) {
   const endDate   = toParam   ? new Date(toParam)   : new Date();
   const startDate = fromParam ? new Date(fromParam)
                               : new Date(endDate.getTime() - 365*24*60*60*1000);
-  const fmtISO = d => d.toISOString().slice(0,10);
+
+  // SDR date format: MM/DD/YYYY
   const fmtMDY = d => `${(d.getMonth()+1).toString().padStart(2,"0")}/${d.getDate().toString().padStart(2,"0")}/${d.getFullYear()}`;
+  const fmtISO = d => d.toISOString().slice(0,10);
+  console.log(`[SDR] Querying ${fmtMDY(startDate)} → ${fmtMDY(endDate)}`);
 
-  console.log(`[SDR] Querying ${fmtISO(startDate)} → ${fmtISO(endDate)}`);
+  try {
+    // Step 1: GET the Query page to obtain ViewState and form field names
+    console.log(`[SDR] Fetching form: ${QUERY_URL}`);
+    const formResp = await fetch(QUERY_URL, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept":     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+      signal: AbortSignal.timeout(15000),
+    });
 
-  // Step 1: Discover the SDR base URL — try multiple domain/path combinations
-  const discoveryUrls = [
-    "https://av-info.faa.gov/sdrx/",
-    "https://av-info.faa.gov/sdrx/index.html",
-    "https://av-info.faa.gov/",
-    "https://amsrvs.registry.faa.gov/airmeninquiry/",  // FAA uses this domain for some services
-    "https://registry.faa.gov/aircraftinquiry/",
-    "https://www.faa.gov/data_research/accident_incident/service_difficulty_reports/",
-  ];
+    console.log(`[SDR] Form: ${formResp.status}, type: ${formResp.headers.get("content-type")}`);
+    const setCookie = formResp.headers.get("set-cookie") || "";
+    const cookies = setCookie.split(/,(?=[^;]+=[^;]+;|[^;]+=)/)
+      .map(c=>c.split(";")[0].trim()).filter(c=>c.includes("=")).join("; ");
+    console.log(`[SDR] Cookies: ${cookies.slice(0,200)}`);
 
-  for (const url of discoveryUrls) {
-    try {
-      console.log(`[SDR] Discovering: ${url}`);
-      const r = await fetch(url, {
-        headers: { "User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36" },
-        signal: AbortSignal.timeout(8000),
-      });
-      console.log(`[SDR] ${url} → status=${r.status}, type=${r.headers.get("content-type")}, location=${r.headers.get("location")||"none"}`);
-      if (r.ok) {
-        const text = await r.text();
-        console.log(`[SDR] Content length: ${text.length}`);
-        console.log(`[SDR] Content snippet: ${text.slice(0,400).replace(/\s+/g," ")}`);
-        const links = [...text.matchAll(/href="([^"]*(?:sdr|service.do|search|report)[^"]*)"/gi)].map(m=>m[1]).slice(0,8);
-        console.log(`[SDR] Relevant links: ${links.join(", ")}`);
-        const formActions = [...text.matchAll(/<form[^>]+action="([^"]+)"/gi)].map(m=>m[1]);
-        console.log(`[SDR] Form actions: ${formActions.join(", ")}`);
-      }
-    } catch(e) {
-      console.log(`[SDR] ${url} error: ${e.message}`);
-    }
+    const formHtml = await formResp.text();
+    console.log(`[SDR] Form HTML length: ${formHtml.length}`);
+    console.log(`[SDR] Form snippet: ${formHtml.slice(0,600).replace(/\s+/g," ")}`);
+
+    // Extract ASP.NET hidden fields
+    const viewstate       = (formHtml.match(/id="__VIEWSTATE"[^>]*value="([^"]*)"/) || [])[1] || "";
+    const eventvalidation = (formHtml.match(/id="__EVENTVALIDATION"[^>]*value="([^"]*)"/) || [])[1] || "";
+    const viewstategen    = (formHtml.match(/id="__VIEWSTATEGENERATOR"[^>]*value="([^"]*)"/) || [])[1] || "";
+    console.log(`[SDR] ViewState: ${viewstate.length} chars, EventValidation: ${eventvalidation.length} chars`);
+
+    // Log all form inputs and selects to see the field names
+    const inputs  = [...formHtml.matchAll(/<input[^>]+name="([^"]+)"[^>]*(?:value="([^"]*)")?/gi)]
+      .map(m=>`${m[1]}=${m[2]||""}`).filter(n=>!n.startsWith("__")).slice(0,20);
+    const selects = [...formHtml.matchAll(/<select[^>]+name="([^"]+)"/gi)].map(m=>m[1]);
+    console.log(`[SDR] Form inputs: ${inputs.join(", ")}`);
+    console.log(`[SDR] Selects: ${selects.join(", ")}`);
+    const formAction = (formHtml.match(/<form[^>]+action="([^"]+)"/i)||[])[1] || "";
+    console.log(`[SDR] Form action: ${formAction}`);
+
+    const submitUrl = formAction
+      ? (formAction.startsWith("http") ? formAction : `https://sdrs.faa.gov${formAction.startsWith("/")?formAction:"/"+formAction}`)
+      : QUERY_URL;
+
+    // Step 2: POST the search form
+    // Try common ASPX date field naming patterns for SDR
+    const postBody = new URLSearchParams({
+      __VIEWSTATE:          viewstate,
+      __EVENTVALIDATION:    eventvalidation,
+      __VIEWSTATEGENERATOR: viewstategen,
+      // Try multiple possible field names for start/end date
+      "ctl00$ContentPlaceHolder1$txtStartDate": fmtMDY(startDate),
+      "ctl00$ContentPlaceHolder1$txtEndDate":   fmtMDY(endDate),
+      "ctl00$ContentPlaceHolder1$txtDateFrom":  fmtMDY(startDate),
+      "ctl00$ContentPlaceHolder1$txtDateTo":    fmtMDY(endDate),
+      "txtStartDate": fmtMDY(startDate),
+      "txtEndDate":   fmtMDY(endDate),
+      "StartDate":    fmtMDY(startDate),
+      "EndDate":      fmtMDY(endDate),
+      // Submit button
+      "ctl00$ContentPlaceHolder1$btnSearch": "Search",
+      "btnSearch": "Search",
+    });
+
+    console.log(`[SDR] POSTing to: ${submitUrl}`);
+    const searchResp = await fetch(submitUrl, {
+      method: "POST",
+      headers: {
+        "User-Agent":   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept":       "text/html,application/xhtml+xml,*/*",
+        "Referer":      QUERY_URL,
+        "Cookie":       cookies,
+        "Origin":       "https://sdrs.faa.gov",
+      },
+      body: postBody.toString(),
+      signal: AbortSignal.timeout(25000),
+    });
+
+    console.log(`[SDR] Search: ${searchResp.status}, type: ${searchResp.headers.get("content-type")}`);
+    const resultHtml = await searchResp.text();
+    console.log(`[SDR] Result length: ${resultHtml.length}`);
+    console.log(`[SDR] Result snippet: ${resultHtml.slice(0,600).replace(/\s+/g," ")}`);
+
+    // Log tables in result for structure analysis
+    const tables=(resultHtml.match(/<table[^>]*>[\s\S]*?<\/table>/gi)||[]).sort((a,b)=>b.length-a.length);
+    console.log(`[SDR] Tables in result: ${tables.length}`);
+    tables.slice(0,3).forEach((t,i)=>{
+      const rows=(t.match(/<tr/gi)||[]).length;
+      const heads=(t.match(/<th[^>]*>([\s\S]*?)<\/th>/gi)||[]).map(h=>h.replace(/<[^>]+>/g,"").trim()).slice(0,8);
+      if(rows>1) console.log(`[SDR] Table ${i}: ${rows} rows, headers: ${heads.join("|")}`);
+    });
+
+    const events = parseSdrResults(resultHtml);
+    console.log(`[SDR] Parsed: ${events.length} events`);
+
+    res.setHeader("Cache-Control","max-age=1800");
+    return res.status(200).json({ events, count:events.length, source:"SDR" });
+
+  } catch(err) {
+    console.error(`[SDR] Error: ${err.message}`);
+    return res.status(200).json({ events:[], source:"SDR", error:err.message });
   }
-
-  // Step 2: Try search endpoints with multiple URL/param patterns
-  const searchEndpoints = [
-    // Original (confirmed 404 — keeping for reference)
-    { url:`https://av-info.faa.gov/sdrx/service.do?action=fetchReports&startDate=${fmtISO(startDate)}&endDate=${fmtISO(endDate)}&maxRows=100`, method:"GET" },
-    // Common alternative paths for FAA web apps
-    { url:`https://av-info.faa.gov/sdrx/SDRSearch.do?startDate=${fmtISO(startDate)}&endDate=${fmtISO(endDate)}`, method:"GET" },
-    { url:`https://av-info.faa.gov/sdrx/SDRSearch.aspx?startDate=${fmtISO(startDate)}&endDate=${fmtISO(endDate)}`, method:"GET" },
-    { url:"https://av-info.faa.gov/sdrx/SDRSearch.do", method:"POST",
-      body: new URLSearchParams({ startDate:fmtISO(startDate), endDate:fmtISO(endDate), maxRows:"100" }).toString() },
-    // FAA may have moved SDR to a different subdomain
-    { url:`https://www.faa.gov/data_research/accident_incident/service_difficulty_reports/media/SDRText${endDate.getFullYear()}.zip`, method:"GET" },
-  ];
-
-  for (const ep of searchEndpoints) {
-    try {
-      console.log(`[SDR] Trying: ${ep.method} ${ep.url}`);
-      const r = await fetch(ep.url, {
-        method: ep.method,
-        headers: {
-          "User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-          "Accept":"text/html,application/xml,text/xml,text/csv,*/*",
-          "Content-Type": ep.body?"application/x-www-form-urlencoded":undefined,
-        },
-        body: ep.body,
-        signal: AbortSignal.timeout(12000),
-      });
-      console.log(`[SDR] → status=${r.status}, type=${r.headers.get("content-type")}`);
-      const text = await r.text();
-      console.log(`[SDR] Length: ${text.length}, snippet: ${text.slice(0,300).replace(/\s+/g," ")}`);
-
-      if (r.ok && text.length > 200) {
-        const events = tryParseSdr(text);
-        if (events.length > 0) {
-          console.log(`[SDR] Parsed ${events.length} events`);
-          res.setHeader("Cache-Control","max-age=1800");
-          return res.status(200).json({ events, count:events.length, source:"SDR" });
-        }
-      }
-    } catch(e) {
-      console.log(`[SDR] ${ep.url} error: ${e.message}`);
-    }
-  }
-
-  console.log("[SDR] All endpoints failed. Check logs above for correct URL patterns.");
-  return res.status(200).json({ events:[], source:"SDR", count:0,
-    note:"SDR URL discovery in progress — check Vercel logs" });
 }
 
-function tryParseSdr(text) {
+function parseSdrResults(html) {
   const events = [];
-  // Try JSON
-  try {
-    const data=JSON.parse(text);
-    const records=Array.isArray(data)?data:(data.results||data.records||data.data||data.reports||[]);
-    if(records.length>0){
-      console.log(`[SDR] JSON keys: ${Object.keys(records[0]).join(", ")}`);
-    }
-  } catch(e){/* not JSON */}
+  const tables=(html.match(/<table[^>]*>([\s\S]*?)<\/table>/gi)||[]).sort((a,b)=>b.length-a.length);
+  if(!tables[0]) return events;
 
-  // Try XML
-  if (text.includes("<?xml")||text.includes("<report>")||text.includes("<SDR>")||text.includes("<Record>")) {
-    const tags = ["report","Record","SDR","row","sdr"];
-    for(const tag of tags){
-      const recs=[...text.matchAll(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`,"gi"))];
-      if(recs.length>1){
-        console.log(`[SDR] XML: found ${recs.length} <${tag}> records, keys in first: ${recs[0][1].match(/<(\w+)>/g)?.slice(0,10).join(",")}`);
-        break;
+  const rows=tables[0].match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)||[];
+  let headers=[];
+  let headerFound=false;
+
+  for(const row of rows){
+    const cells=(row.match(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)||[])
+      .map(c=>c.replace(/<[^>]+>/g,"").replace(/&nbsp;/g," ").trim());
+    if(cells.length<2) continue;
+
+    if(!headerFound&&/date|make|model|reg|operator|diff|narr/i.test(cells.join(" "))){
+      headers=cells;
+      headerFound=true;
+      console.log(`[SDR] Headers: ${cells.slice(0,8).join("|")}`);
+      continue;
+    }
+    if(!headerFound||cells.length<3) continue;
+
+    const get=(...names)=>{
+      for(const n of names){
+        const idx=headers.findIndex(h=>new RegExp(n,"i").test(h));
+        if(idx>=0&&cells[idx]) return cells[idx];
       }
-    }
-  }
+      return "";
+    };
 
-  // Try HTML table
-  const tables=(text.match(/<table[^>]*>[\s\S]*?<\/table>/gi)||[]).sort((a,b)=>b.length-a.length);
-  if(tables.length>0){
-    const rows=tables[0].match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)||[];
-    if(rows.length>1){
-      const headerCells=(rows[0].match(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi)||[]).map(c=>c.replace(/<[^>]+>/g,"").trim());
-      console.log(`[SDR] HTML table: ${rows.length} rows, header: ${headerCells.slice(0,8).join(" | ")}`);
-    }
+    const dateRaw=get("date","Date","DT")|| "";
+    const make   =get("make","manufacturer","Make")||cells[1]||"Unknown";
+    const model  =get("model","Model")||"";
+    const reg    =get("reg","registration","n-number","tail")||"";
+    const op     =get("operator","carrier","airline","Operator")||"";
+    const diff   =get("difficulty","diff","problem","Difficulty")||"";
+    const narr   =get("narrative","narr","description","Narrative")||cells.slice(-1)[0]||"";
+    const airport=get("airport","city","location","Airport")||"";
+
+    let isoDate=new Date().toISOString().slice(0,10);
+    const dm=dateRaw.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+    const dm2=dateRaw.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if(dm2) isoDate=`${dm2[1]}-${dm2[2]}-${dm2[3]}`;
+    else if(dm){const yr=dm[3].length===2?`20${dm[3]}`:dm[3];isoDate=`${yr}-${dm[1].padStart(2,"0")}-${dm[2].padStart(2,"0")}`;}
+
+    const [lat,lon]=coordsFor(`${airport} ${op}`);
+    const isCrit=/fire|smoke|struct|fracture|crack|fail/i.test(diff+narr);
+    events.push({
+      id:`SDR-${isoDate}-${events.length}`,
+      type:"incident",
+      severity:isCrit?"high":"low",
+      date:isoDate,
+      aircraft:`${make} ${model}`.trim().slice(0,60)||"Unknown",
+      category:"Commercial Jet",
+      reg:reg||null, carrier:op||null,
+      location:airport||op||"Not reported",
+      lat, lon,
+      injuries:"Not reported", fatalities:0, phase:"Unknown",
+      description:(narr||`SDR: ${diff}`).slice(0,600),
+      source:"SDR", url:"https://sdrs.faa.gov/",
+    });
   }
-  return events; // Return empty — logging only until we know the format
+  return events;
 }

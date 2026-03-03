@@ -167,7 +167,11 @@ function parseCsv(text) {
     });
   }
 
-  console.log(`[ASIAS] CSV parsed: ${events.length} events`);
+  // Log first 3 events for coordinate debugging
+  events.slice(0,3).forEach((ev,i)=>
+    console.log(`[ASIAS] Event ${i}: date=${ev.date} aircraft=${ev.aircraft} state=${ev.location} lat=${ev.lat} lon=${ev.lon}`)
+  );
+  console.log(`[ASIAS] CSV parsed: ${events.length} events (${events.filter(e=>e.lat!==null).length} with coords)`);
   return events;
 }
 
