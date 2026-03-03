@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Analytics } from "@vercel/analytics/react";
 
 /* ══════════════════════════════════════════════════════════════════════════════
    CONSTANTS
@@ -2172,6 +2173,9 @@ If nothing notable, respond: {"alerts":[]}`,
 
       {/* ══ AI CHAT DRAWER ══════════════════════════════════════════════════ */}
       <AIChatDrawer open={chatOpen} onToggle={()=>setChatOpen(v=>!v)} dashboardState={chatDashboardState}/>
+
+      {/* ══ VERCEL WEB ANALYTICS ════════════════════════════════════════════ */}
+      <Analytics />
 
     </div>
   );
