@@ -759,7 +759,7 @@ export default function AviationDashboard() {
     const map=L.map(mapDivRef.current,{center:r.center,zoom:r.zoom,zoomControl:false,attributionControl:false});
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{subdomains:"abcd",maxZoom:19}).addTo(map);
     L.control.zoom({position:"bottomright"}).addTo(map);
-    L.control.attribution({prefix:'<a href="https://carto.com" style="color:#3a6080">© CartoDB</a> | airplanes.live (ADS-B) | NTSB/FAA/EASA (sample) | NOAA'}).addTo(map);
+    L.control.attribution({prefix:'<a href="https://carto.com" style="color:#3a6080">© CartoDB</a> | OpenSky Network (ADS-B) | NTSB/FAA/EASA (sample) | NOAA'}).addTo(map);
     flightLayerRef.current=L.layerGroup().addTo(map);
     incidentLayerRef.current=L.layerGroup().addTo(map);
     weatherLayerRef.current=L.layerGroup().addTo(map);
@@ -792,7 +792,7 @@ export default function AviationDashboard() {
 
   useEffect(()=>{
     fetchFlights();
-    const iv=setInterval(fetchFlights,45000);
+    const iv=setInterval(fetchFlights,120000); // 2-minute refresh — 720 calls/day vs 4,000 credit limit
     return()=>clearInterval(iv);
   },[fetchFlights]);
 
@@ -1438,7 +1438,7 @@ If nothing notable, respond: {"alerts":[]}`,
           {/* Data sources legend */}
           <div style={{marginTop:"8px",padding:"10px",background:C.bg0,border:`1px solid ${C.border}`,borderRadius:"4px"}}>
             <div style={{fontSize:"8px",fontFamily:"'Orbitron',monospace",color:C.muted,letterSpacing:"0.12em",marginBottom:"7px"}}>ACTIVE FEEDS</div>
-            {[{dot:C.safe,label:"airplanes.live (ADS-B)"},{dot:"#00b4ff",label:"NTSB Accidents Reports"},{dot:"#ffb300",label:"FAA Service Difficulty Reports"},{dot:"#ff6644",label:"FAA ASIAS Preliminary (10bd)"},{dot:"#00e5ff",label:"airframes.io ACARS"},{dot:C.wxDelay,label:"FAA NASSTATUS (delays)"},{dot:C.wxTurb,label:"NOAA SIGMET/AIRMET"}].map((s,i)=>(
+            {[{dot:C.safe,label:"OpenSky Network (ADS-B)"},{dot:"#00b4ff",label:"NTSB Accidents Reports"},{dot:"#ffb300",label:"FAA Service Difficulty Reports"},{dot:"#ff6644",label:"FAA ASIAS Preliminary (10bd)"},{dot:"#00e5ff",label:"airframes.io ACARS"},{dot:C.wxDelay,label:"FAA NASSTATUS (delays)"},{dot:C.wxTurb,label:"NOAA SIGMET/AIRMET"}].map((s,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:"6px",fontSize:"10px",color:C.muted,marginBottom:"3px"}}>
                 <div style={{width:"5px",height:"5px",borderRadius:"50%",background:s.dot,flexShrink:0}}/>{s.label}
               </div>
