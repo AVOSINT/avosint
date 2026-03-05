@@ -33,8 +33,7 @@ const EVENT_META = {
 };
 
 const AIRCRAFT_CATEGORIES = [
-  "All Types","Commercial Jet","Widebody Heavy","Narrowbody","Turboprop",
-  "Cargo","Private/GA","Helicopter","Military","UAV/Drone",
+  "All Types","Commercial","General Aviation","Helicopter","Military",
 ];
 
 const CARRIERS = [
@@ -316,150 +315,6 @@ const sel={width:"100%",background:C.card,border:`1px solid ${C.border}`,color:C
 const inp={width:"100%",background:C.card,border:`1px solid ${C.border}`,color:C.text,borderRadius:"4px",padding:"6px 8px",fontSize:"11px",fontFamily:"'Share Tech Mono',monospace",outline:"none"};
 const btn={background:C.dim,border:`1px solid ${C.border}`,color:C.muted,borderRadius:"4px",padding:"5px 10px",cursor:"pointer",fontSize:"11px",fontFamily:"'Share Tech Mono',monospace"};
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   CANVAS IMAGE GENERATOR (for downloadable post cards)
-══════════════════════════════════════════════════════════════════════════════ */
-
-function generatePostImage(ev) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1080; canvas.height = 1080;
-  const ctx = canvas.getContext("2d");
-  const sev = SEVERITY_META[ev.severity] || SEVERITY_META.medium;
-  const meta = EVENT_META[ev.type] || EVENT_META.incident;
-  const accentColor = sev.color;
-
-  // Background
-  ctx.fillStyle = "#020b14"; ctx.fillRect(0,0,1080,1080);
-
-  // Subtle grid
-  ctx.strokeStyle = "#0f2d4a33"; ctx.lineWidth = 1;
-  for (let i=0;i<1080;i+=60){
-    ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,1080); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(1080,i); ctx.stroke();
-  }
-
-  // Top accent bar
-  const grad = ctx.createLinearGradient(0,0,1080,0);
-  grad.addColorStop(0, accentColor);
-  grad.addColorStop(1, accentColor+"22");
-  ctx.fillStyle = grad; ctx.fillRect(0,0,1080,8);
-
-  // Header band
-  ctx.fillStyle = accentColor+"18"; ctx.fillRect(0,8,1080,110);
-
-  // Event type badge
-  ctx.fillStyle = accentColor+"44";
-  ctx.roundRect(40,30,220,48,6); ctx.fill();
-  ctx.fillStyle = accentColor;
-  ctx.font = "bold 24px monospace";
-  ctx.fillText(`${meta.icon}  ${ev.type.toUpperCase()}`, 60, 62);
-
-  // Severity badge
-  ctx.fillStyle = sev.dim;
-  ctx.roundRect(280,30,160,48,6); ctx.fill();
-  ctx.strokeStyle = accentColor+"66"; ctx.lineWidth=1;
-  ctx.roundRect(280,30,160,48,6); ctx.stroke();
-  ctx.fillStyle = accentColor;
-  ctx.font = "bold 20px monospace";
-  ctx.fillText(sev.label, 300, 62);
-
-  // AVOSINT brand
-  ctx.fillStyle = "#00b4ff";
-  ctx.font = "bold 28px monospace";
-  ctx.fillText("AVOSINT", 750, 58);
-  ctx.fillStyle = "#3a6080"; ctx.font = "16px monospace";
-  ctx.fillText("AVIATION INTELLIGENCE", 710, 82);
-
-  // Divider
-  ctx.strokeStyle = accentColor+"55"; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(40,130); ctx.lineTo(1040,130); ctx.stroke();
-
-  // Aircraft name (big)
-  ctx.fillStyle = "#e8f4ff";
-  ctx.font = "bold 52px monospace";
-  const acName = ev.aircraft.length > 22 ? ev.aircraft.slice(0,22)+"…" : ev.aircraft;
-  ctx.fillText(acName, 40, 210);
-
-  // Carrier
-  if (ev.carrier) {
-    ctx.fillStyle = "#00b4ff"; ctx.font = "28px monospace";
-    ctx.fillText(ev.carrier, 40, 255);
-  }
-
-  // Key data grid (2 columns × 4 rows)
-  const fields = [
-    ["REG / TAIL",    ev.reg || "N/A"],
-    ["LOCATION",      ev.location.length>24 ? ev.location.slice(0,24)+"…" : ev.location],
-    ["DATE",          ev.date],
-    ["PHASE",         ev.phase],
-    ["CATEGORY",      ev.category],
-    ["SOURCE",        ev.source],
-    ["INJURIES",      ev.injuries || "None"],
-    ["FATALITIES",    ev.fatalities > 0 ? `${ev.fatalities} FATAL` : "None"],
-  ];
-
-  fields.forEach(([label,value],i) => {
-    const col = i%2; const row = Math.floor(i/2);
-    const x = col===0 ? 40 : 560;
-    const y = 300 + row*140;
-    // card bg
-    ctx.fillStyle = "#0c1e33";
-    ctx.roundRect(x,y,480,115,6); ctx.fill();
-    ctx.strokeStyle = label==="FATALITIES"&&ev.fatalities>0 ? "#ff333388" : "#0f2d4a";
-    ctx.lineWidth = 1;
-    ctx.roundRect(x,y,480,115,6); ctx.stroke();
-    // label
-    ctx.fillStyle = "#3a6080"; ctx.font = "18px monospace";
-    ctx.fillText(label, x+16, y+30);
-    // value
-    ctx.fillStyle = label==="FATALITIES"&&ev.fatalities>0 ? "#ff4444" : "#c8dff0";
-    ctx.font = `bold 30px monospace`;
-    ctx.fillText(String(value).slice(0,22), x+16, y+82);
-  });
-
-  // Description excerpt
-  ctx.fillStyle = "#0c1e33"; ctx.roundRect(40,875,1000,120,6); ctx.fill();
-  ctx.strokeStyle="#0f2d4a"; ctx.lineWidth=1; ctx.roundRect(40,875,1000,120,6); ctx.stroke();
-  ctx.fillStyle = "#8ab4cc"; ctx.font = "20px 'Arial'";
-  const desc = ev.description.slice(0,120) + (ev.description.length>120?"…":"");
-  // Word wrap basic
-  const words = desc.split(" ");
-  let line = ""; let ly = 910;
-  words.forEach(w => {
-    const test = line + w + " ";
-    if (ctx.measureText(test).width > 960 && line) {
-      ctx.fillText(line.trim(), 56, ly); line = w+" "; ly += 26;
-    } else { line = test; }
-  });
-  if (line) ctx.fillText(line.trim(), 56, ly);
-
-  // Footer
-  ctx.fillStyle = "#06101a"; ctx.fillRect(0,1010,1080,70);
-  ctx.strokeStyle = accentColor+"33";
-  ctx.beginPath(); ctx.moveTo(0,1010); ctx.lineTo(1080,1010); ctx.stroke();
-  ctx.fillStyle = "#3a6080"; ctx.font = "18px monospace";
-  ctx.fillText(new Date().toUTCString().slice(0,25), 40, 1050);
-  ctx.fillStyle = accentColor; ctx.font = "bold 18px monospace";
-  ctx.fillText("#Aviation #AviationSafety #OSINT #Avgeek", 480, 1050);
-
-  return canvas.toDataURL("image/png");
-}
-
-/* ══════════════════════════════════════════════════════════════════════════════
-   PROMPTS
-══════════════════════════════════════════════════════════════════════════════ */
-
-function buildCaptionPrompt(ev) {
-  return `Write a compelling social media caption for this aviation ${ev.type} report. 
-Make it informative, professional, and engaging. Include key facts: aircraft, location, what happened, phase of flight.
-Keep it under 220 characters for the main text. Then add a separate line of relevant hashtags.
-Format your response as:
-CAPTION: [main text here]
-HASHTAGS: [hashtags here]
-
-Event data: Aircraft: ${ev.aircraft}, Location: ${ev.location}, Date: ${ev.date}, Type: ${ev.type}, Severity: ${ev.severity}, Phase: ${ev.phase}, ${ev.carrier?"Carrier: "+ev.carrier+",":""} ${ev.fatalities>0?"Fatalities: "+ev.fatalities+",":""} Source: ${ev.source}.
-Brief: ${ev.description.slice(0,200)}`;
-}
 
 function buildChatSystemPrompt(context, state) {
   if (context === "general") {
@@ -545,7 +400,7 @@ function Toggle({on,onToggle,label,color=C.accent}) {
   );
 }
 
-function EventCard({ev,selected,onClick,onGeneratePost,generating}) {
+function EventCard({ev,selected,onClick}) {
   const sev=SEVERITY_META[ev.severity]||SEVERITY_META.medium;
   const meta=EVENT_META[ev.type]||EVENT_META.incident;
   const [hov,setHov]=useState(false);
@@ -554,14 +409,7 @@ function EventCard({ev,selected,onClick,onGeneratePost,generating}) {
       style={{padding:"11px 12px",borderBottom:`1px solid ${C.border}`,cursor:"pointer",background:selected?C.dim:hov?C.bg2:"transparent",borderLeft:`3px solid ${selected?sev.color:hov?C.border:"transparent"}`,transition:"all 0.12s ease"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"3px"}}>
         <span style={{fontSize:"10px",color:meta.color,fontFamily:"'Share Tech Mono',monospace"}}>{meta.icon} {ev.type.toUpperCase()}</span>
-        <div style={{display:"flex",alignItems:"center",gap:"5px"}}>
-          <span style={{fontSize:"8px",background:sev.dim,color:sev.color,border:`1px solid ${sev.color}44`,borderRadius:"3px",padding:"1px 5px",fontFamily:"'Orbitron',monospace"}}>{sev.label}</span>
-          <button onClick={e=>{e.stopPropagation();onGeneratePost(ev);}} disabled={generating}
-            title="Generate social post"
-            style={{...btn,padding:"2px 6px",fontSize:"9px",color:generating?C.muted:"#cc88ff",border:`1px solid ${generating?C.border:"#cc88ff44"}`,background:C.bg0}}>
-            {generating?"…":"📷"}
-          </button>
-        </div>
+        <span style={{fontSize:"8px",background:sev.dim,color:sev.color,border:`1px solid ${sev.color}44`,borderRadius:"3px",padding:"1px 5px",fontFamily:"'Orbitron',monospace"}}>{sev.label}</span>
       </div>
       <div style={{fontWeight:"600",fontSize:"12px",color:C.text,marginBottom:"2px"}}>{ev.aircraft}</div>
       {ev.carrier&&<div style={{fontSize:"10px",color:C.accent,marginBottom:"1px"}}>{ev.carrier}</div>}
@@ -574,7 +422,7 @@ function EventCard({ev,selected,onClick,onGeneratePost,generating}) {
   );
 }
 
-function DetailPanel({ev,onClose,onGeneratePost,generating}) {
+function DetailPanel({ev,onClose}) {
   if(!ev) return (
     <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:C.muted,gap:"10px"}}>
       <div style={{fontSize:"32px",opacity:0.3}}>✈</div>
@@ -590,13 +438,7 @@ function DetailPanel({ev,onClose,onGeneratePost,generating}) {
           <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:"10px",color:meta.color,marginBottom:"4px"}}>{meta.icon} {ev.type.toUpperCase()} · {sev.label}</div>
           <div style={{fontFamily:"'Orbitron',monospace",fontSize:"14px",color:C.text,lineHeight:1.3}}>{ev.aircraft}</div>
         </div>
-        <div style={{display:"flex",gap:"6px"}}>
-          <button onClick={()=>onGeneratePost(ev)} disabled={generating}
-            style={{...btn,padding:"4px 10px",fontSize:"10px",color:generating?C.muted:"#cc88ff",border:`1px solid #cc88ff44`}}>
-            {generating?"Generating…":"📷 GENERATE POST"}
-          </button>
-          <button onClick={onClose} style={{...btn,padding:"3px 10px",fontSize:"14px",color:C.muted}}>×</button>
-        </div>
+        <button onClick={onClose} style={{...btn,padding:"3px 10px",fontSize:"14px",color:C.muted}}>×</button>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"14px"}}>
         {[["REG",ev.reg||"N/A"],["CATEGORY",ev.category||"—"],["CARRIER",ev.carrier||"Independent"],["PHASE",ev.phase||"—"],["DATE",ev.date],["SOURCE",ev.source],["INJURIES",ev.injuries||"Not reported"],["FATALITIES",ev.fatalities>0?`${ev.fatalities} FATAL`:"NONE"]].map(([k,v])=>(
@@ -623,108 +465,6 @@ function DetailPanel({ev,onClose,onGeneratePost,generating}) {
           </div>
         )}
         <div style={{background:C.bg0,border:`1px solid ${C.border}`,borderRadius:"4px",padding:"12px",fontSize:"12px",lineHeight:"1.65",color:C.text}}>{ev.description}</div>
-      </div>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════════════════
-   POST MODAL
-══════════════════════════════════════════════════════════════════════════════ */
-
-function PostModal({state,onClose}) {
-  const [caption,setCaption]=useState("");
-  const [hashtags,setHashtags]=useState("");
-  const [copied,setCopied]=useState(false);
-
-  useEffect(()=>{
-    if(state.caption) {
-      const capMatch = state.caption.match(/CAPTION:\s*([\s\S]*?)(?=HASHTAGS:|$)/i);
-      const tagMatch = state.caption.match(/HASHTAGS:\s*([\s\S]*?)$/i);
-      setCaption(capMatch?capMatch[1].trim():state.caption);
-      setHashtags(tagMatch?tagMatch[1].trim():"#Aviation #AviationSafety #OSINT #Avgeek");
-    }
-  },[state.caption]);
-
-  const downloadImage=()=>{
-    const a=document.createElement("a");
-    a.href=state.imageUrl;
-    a.download=`avosint_${state.event?.type}_${state.event?.date||"post"}.png`;
-    a.click();
-  };
-
-  const copyAll=()=>{
-    navigator.clipboard.writeText(`${caption}\n\n${hashtags}`);
-    setCopied(true);
-    setTimeout(()=>setCopied(false),2000);
-  };
-
-  if(!state.open) return null;
-
-  return (
-    <div style={{position:"fixed",inset:0,background:"#000000cc",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}
-      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{background:C.bg1,border:`1px solid #cc88ff44`,borderRadius:"10px",width:"min(700px,95vw)",maxHeight:"90vh",overflow:"auto",display:"flex",flexDirection:"column"}}>
-        {/* Header */}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 18px",borderBottom:`1px solid ${C.border}`}}>
-          <div style={{fontFamily:"'Orbitron',monospace",fontSize:"11px",color:"#cc88ff",letterSpacing:"0.12em"}}>📷 POST GENERATOR</div>
-          <button onClick={onClose} style={{...btn,fontSize:"16px",padding:"2px 10px",color:C.muted}}>×</button>
-        </div>
-
-        {state.generating ? (
-          <div style={{padding:"60px",textAlign:"center"}}>
-            <div style={{fontSize:"32px",color:"#cc88ff",animation:"blink 0.8s step-end infinite",marginBottom:"16px"}}>◈</div>
-            <div style={{fontFamily:"'Orbitron',monospace",fontSize:"11px",color:C.muted,letterSpacing:"0.12em"}}>GENERATING POST…</div>
-            <div style={{fontSize:"10px",color:C.muted,marginTop:"8px",fontFamily:"'Share Tech Mono',monospace"}}>Rendering image card + writing caption</div>
-          </div>
-        ) : (
-          <div style={{display:"flex",gap:"0",flexWrap:"wrap"}}>
-            {/* Image preview */}
-            <div style={{padding:"18px",flex:"0 0 auto",display:"flex",flexDirection:"column",alignItems:"center",gap:"12px",borderRight:`1px solid ${C.border}`,minWidth:"280px"}}>
-              <div style={{fontSize:"8px",fontFamily:"'Orbitron',monospace",color:C.muted,letterSpacing:"0.12em",alignSelf:"flex-start"}}>IMAGE PREVIEW (1080×1080)</div>
-              <img src={state.imageUrl} alt="Post card" style={{width:"100%",maxWidth:"280px",borderRadius:"6px",border:`1px solid ${C.border}`}}/>
-              <button onClick={downloadImage} style={{...btn,width:"100%",color:"#cc88ff",border:`1px solid #cc88ff44`,padding:"8px",fontFamily:"'Orbitron',monospace",fontSize:"10px",letterSpacing:"0.1em"}}>
-                ⬇ DOWNLOAD PNG
-              </button>
-            </div>
-
-            {/* Caption editor */}
-            <div style={{padding:"18px",flex:1,display:"flex",flexDirection:"column",gap:"12px",minWidth:"280px"}}>
-              <div>
-                <div style={{fontSize:"8px",fontFamily:"'Orbitron',monospace",color:C.muted,letterSpacing:"0.12em",marginBottom:"6px"}}>CAPTION (EDITABLE)</div>
-                <textarea
-                  value={caption}
-                  onChange={e=>setCaption(e.target.value)}
-                  style={{...inp,height:"120px",resize:"vertical",lineHeight:"1.6"}}
-                />
-                <div style={{fontSize:"9px",color:C.muted,marginTop:"4px",fontFamily:"'Share Tech Mono',monospace",textAlign:"right"}}>{caption.length} chars</div>
-              </div>
-
-              <div>
-                <div style={{fontSize:"8px",fontFamily:"'Orbitron',monospace",color:C.muted,letterSpacing:"0.12em",marginBottom:"6px"}}>HASHTAGS (EDITABLE)</div>
-                <textarea
-                  value={hashtags}
-                  onChange={e=>setHashtags(e.target.value)}
-                  style={{...inp,height:"60px",resize:"vertical",lineHeight:"1.6",color:C.accent}}
-                />
-              </div>
-
-              <div style={{background:C.bg0,border:`1px solid ${C.border}`,borderRadius:"4px",padding:"10px 12px"}}>
-                <div style={{fontSize:"8px",fontFamily:"'Orbitron',monospace",color:C.muted,letterSpacing:"0.12em",marginBottom:"6px"}}>FULL POST PREVIEW</div>
-                <div style={{fontSize:"11px",color:C.text,lineHeight:"1.6",fontFamily:"'Share Tech Mono',monospace"}}>{caption}</div>
-                <div style={{fontSize:"11px",color:C.accent,marginTop:"6px",fontFamily:"'Share Tech Mono',monospace"}}>{hashtags}</div>
-              </div>
-
-              <button onClick={copyAll} style={{...btn,width:"100%",color:copied?"#22dd77":"#cc88ff",border:`1px solid ${copied?"#22dd7744":"#cc88ff44"}`,padding:"10px",fontFamily:"'Orbitron',monospace",fontSize:"10px",letterSpacing:"0.1em",transition:"all 0.2s"}}>
-                {copied?"✓ COPIED!":"📋 COPY CAPTION + HASHTAGS"}
-              </button>
-
-              <div style={{fontSize:"9px",color:C.muted,textAlign:"center",fontFamily:"'Share Tech Mono',monospace",lineHeight:1.5}}>
-                Download the image, copy the caption, then paste manually into Instagram, X, or any platform.
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -880,8 +620,8 @@ export default function AviationDashboard() {
   const [carrier,setCarrier]=useState("All Carriers");
   const [aircraftCat,setAircraftCat]=useState("All Types");
   const [searchText,setSearchText]=useState("");
-  const [dateFrom,setDateFrom]=useState("");
-  const [dateTo,setDateTo]=useState("");
+  const [dateFrom,setDateFrom]=useState(()=>new Date(Date.now()-86400000).toISOString().split("T")[0]);
+  const [dateTo,setDateTo]=useState(()=>new Date().toISOString().split("T")[0]);
   const [eventTypes,setEventTypes]=useState({accident:true,incident:true,military:true,vip:true,live:true,ntsb:true,sdr:true,asias:true});
   const [squawkFilter,setSquawkFilter]=useState([]);
   const [onGroundHide,setOnGroundHide]=useState(false);
@@ -916,10 +656,6 @@ export default function AviationDashboard() {
   const [weatherLoading,setWeatherLoading]=useState(false);
   const weatherLayerRef=useRef(null);
   const delayLayerRef=useRef(null);
-
-  // ── Post modal state ──────────────────────────────────────────────────────
-  const [postModal,setPostModal]=useState({open:false,event:null,generating:false,imageUrl:null,caption:null});
-  const [generatingEventId,setGeneratingEventId]=useState(null);
 
   // ── Analysis state ────────────────────────────────────────────────────────
   const [analysisText,setAnalysisText]=useState("");
@@ -1023,7 +759,7 @@ export default function AviationDashboard() {
     const map=L.map(mapDivRef.current,{center:r.center,zoom:r.zoom,zoomControl:false,attributionControl:false});
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",{subdomains:"abcd",maxZoom:19}).addTo(map);
     L.control.zoom({position:"bottomright"}).addTo(map);
-    L.control.attribution({prefix:'<a href="https://carto.com" style="color:#3a6080">© CartoDB</a> | OpenSky Network | NTSB/FAA/EASA (sample) | NOAA'}).addTo(map);
+    L.control.attribution({prefix:'<a href="https://carto.com" style="color:#3a6080">© CartoDB</a> | airplanes.live (ADS-B) | NTSB/FAA/EASA (sample) | NOAA'}).addTo(map);
     flightLayerRef.current=L.layerGroup().addTo(map);
     incidentLayerRef.current=L.layerGroup().addTo(map);
     weatherLayerRef.current=L.layerGroup().addTo(map);
@@ -1082,7 +818,7 @@ export default function AviationDashboard() {
       const ntsbEvents =ntsbRes.status==="fulfilled" ?(ntsbRes.value.events ||[]):[];
       const sdrEvents  =sdrRes.status==="fulfilled"  ?(sdrRes.value.events  ||[]):[];
       const asiasEvents=asiasRes.status==="fulfilled"?(asiasRes.value.events||[]):[];
-      setNtsbStatus (ntsbRes.status==="fulfilled"  && !ntsbRes.value.error  ?"ok":"error");
+      setNtsbStatus (ntsbRes.status==="fulfilled" && ntsbRes.value.events != null ?"ok":"error");
       setSdrStatus  (sdrRes.status==="fulfilled"   && !sdrRes.value.error   ?"ok":"error");
       setAsiasStatus(asiasRes.status==="fulfilled" && !asiasRes.value.error ?"ok":"error");
       // Merge and deduplicate (ASIAS may overlap NTSB on recent events)
@@ -1101,7 +837,9 @@ export default function AviationDashboard() {
   },[]);
 
   useEffect(()=>{
-    fetchIncidents();
+    const df=new Date(Date.now()-86400000).toISOString().split("T")[0];
+    const dt=new Date().toISOString().split("T")[0];
+    fetchIncidents(df,dt);
     const iv=setInterval(fetchIncidents,30*60*1000);
     return ()=>clearInterval(iv);
   },[fetchIncidents]);
@@ -1304,18 +1042,17 @@ If nothing notable, respond: {"alerts":[]}`,
       const mappedCarrier=CARRIER_CALLSIGN_MAP[cs.slice(0,3)];
       if(mappedCarrier!==carrier) return false;
     }
-    // Aircraft category filter — best-effort based on callsign patterns
+    // Aircraft category filter
     if(aircraftCat!=="All Types"){
       const cs=(s[1]||"").trim().toUpperCase();
       const isMil=isMilitaryCallsign(cs);
-      const isCargo=["FDX","UPS","GTI","ABX","ATN","CLX","NPT","BCS","DHK"].includes(cs.slice(0,3));
-      if(aircraftCat==="Military"    && !isMil)   return false;
-      if(aircraftCat==="Cargo"       && !isCargo) return false;
-      if(aircraftCat==="Military"||aircraftCat==="Cargo"){/* already handled */}
-      // For commercial categories, hide known military and cargo
-      else if(["Commercial Jet","Narrowbody","Widebody Heavy","Turboprop"].includes(aircraftCat)){
-        if(isMil||isCargo) return false;
-      }
+      const isHeli=s[16]==="A7"||(cs.includes("HELI")||cs.includes("HELO"));
+      const isCommercial=!isMil&&!isHeli&&!!CARRIER_CALLSIGN_MAP[cs.slice(0,3)];
+      const isGA=!isMil&&!isHeli&&!isCommercial;
+      if(aircraftCat==="Military"       &&!isMil)       return false;
+      if(aircraftCat==="Helicopter"     &&!isHeli)      return false;
+      if(aircraftCat==="Commercial"     &&!isCommercial)return false;
+      if(aircraftCat==="General Aviation"&&!isGA)        return false;
     }
     if(searchText){const q=searchText.toLowerCase();if(!`${s[1]} ${s[2]} ${s[14]}`.toLowerCase().includes(q))return false;}
     return true;
@@ -1421,32 +1158,6 @@ If nothing notable, respond: {"alerts":[]}`,
       );
     });
   },[filteredIncidents,notifEnabled,sendNotif]);
-
-  /* ── Generate post ───────────────────────────────────────────────────── */
-  const generatePost=useCallback(async(ev)=>{
-    setGeneratingEventId(ev.id);
-    setPostModal({open:true,event:ev,generating:true,imageUrl:null,caption:null});
-
-    try{
-      const imageUrl=generatePostImage(ev);
-      const res=await fetch("/api/analyze",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:400,
-          messages:[{role:"user",content:buildCaptionPrompt(ev)}],
-        }),
-      });
-      const data=await res.json();
-      const caption=data.content?.[0]?.text?.trim()||"Aviation event report — see AVOSINT for details.";
-      setPostModal({open:true,event:ev,generating:false,imageUrl,caption});
-    }catch(err){
-      setPostModal({open:true,event:ev,generating:false,imageUrl:null,caption:`Error: ${err.message}`});
-    }finally{
-      setGeneratingEventId(null);
-    }
-  },[]);
 
   /* ── Run analysis ────────────────────────────────────────────────────── */
   const runAnalysis=useCallback(async()=>{
@@ -1727,7 +1438,7 @@ If nothing notable, respond: {"alerts":[]}`,
           {/* Data sources legend */}
           <div style={{marginTop:"8px",padding:"10px",background:C.bg0,border:`1px solid ${C.border}`,borderRadius:"4px"}}>
             <div style={{fontSize:"8px",fontFamily:"'Orbitron',monospace",color:C.muted,letterSpacing:"0.12em",marginBottom:"7px"}}>ACTIVE FEEDS</div>
-            {[{dot:C.safe,label:"OpenSky Network (ADS-B)"},{dot:"#00b4ff",label:"NTSB Accidents Reports"},{dot:"#ffb300",label:"FAA Service Difficulty Reports"},{dot:"#ff6644",label:"FAA ASIAS Preliminary (10bd)"},{dot:"#00e5ff",label:"airframes.io ACARS"},{dot:C.wxDelay,label:"FAA NASSTATUS (delays)"},{dot:C.wxTurb,label:"NOAA SIGMET/AIRMET"}].map((s,i)=>(
+            {[{dot:C.safe,label:"airplanes.live (ADS-B)"},{dot:"#00b4ff",label:"NTSB Accidents Reports"},{dot:"#ffb300",label:"FAA Service Difficulty Reports"},{dot:"#ff6644",label:"FAA ASIAS Preliminary (10bd)"},{dot:"#00e5ff",label:"airframes.io ACARS"},{dot:C.wxDelay,label:"FAA NASSTATUS (delays)"},{dot:C.wxTurb,label:"NOAA SIGMET/AIRMET"}].map((s,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",gap:"6px",fontSize:"10px",color:C.muted,marginBottom:"3px"}}>
                 <div style={{width:"5px",height:"5px",borderRadius:"50%",background:s.dot,flexShrink:0}}/>{s.label}
               </div>
@@ -1786,7 +1497,7 @@ If nothing notable, respond: {"alerts":[]}`,
 
           {apiStatus==="error"&&(
             <div style={{position:"absolute",top:"12px",left:"50%",transform:"translateX(-50%)",background:"#1a000088",backdropFilter:"blur(8px)",border:`1px solid ${C.danger}66`,borderRadius:"4px",padding:"7px 16px",fontFamily:"'Share Tech Mono',monospace",fontSize:"11px",color:"#ff9999",zIndex:1000,whiteSpace:"nowrap"}}>
-              ⚠ OpenSky Network unavailable — incident & weather layers still active
+              ⚠ Live flight feed unavailable — incident & weather layers still active
             </div>
           )}
         </div>
@@ -1796,7 +1507,7 @@ If nothing notable, respond: {"alerts":[]}`,
 
           {/* Tabs */}
           <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
-            {[["events","EVENTS",C.accent],["flights","FLIGHTS",C.accent],["acars","ACARS","#00e5ff"],["analysis","ANALYSIS","#cc88ff"],["post","POST","#ff8c00"],["alerts","🔔","#22dd77"]].map(([id,label,color])=>(
+            {[["events","EVENTS",C.accent],["flights","FLIGHTS",C.accent],["acars","ACARS","#00e5ff"],["analysis","ANALYSIS","#cc88ff"],["alerts","🔔","#22dd77"]].map(([id,label,color])=>(
               <button key={id} onClick={()=>setActiveTab(id)} style={{flex:1,padding:"11px 0",cursor:"pointer",border:"none",background:activeTab===id?C.bg2:"transparent",color:activeTab===id?color:C.muted,fontFamily:"'Orbitron',monospace",fontSize:"7.5px",letterSpacing:"0.08em",borderBottom:activeTab===id?`2px solid ${color}`:"2px solid transparent",transition:"all 0.15s",position:"relative"}}>
                 {label}
                 {id==="analysis"&&analysisStatus==="loading"&&<span style={{position:"absolute",top:"3px",right:"3px",width:"6px",height:"6px",borderRadius:"50%",background:"#cc88ff",animation:"blink 0.6s step-end infinite"}}/>}
@@ -1862,7 +1573,7 @@ If nothing notable, respond: {"alerts":[]}`,
                     :[...filteredIncidents]
                         .sort((a,b)=>(b.date||"").localeCompare(a.date||""))
                         .map(ev=>(
-                          <EventCard key={ev.id} ev={ev} selected={selectedEvent?.id===ev.id} onClick={()=>setSelectedEvent(ev)} onGeneratePost={generatePost} generating={generatingEventId===ev.id}/>
+                          <EventCard key={ev.id} ev={ev} selected={selectedEvent?.id===ev.id} onClick={()=>setSelectedEvent(ev)}/>
                         ))
             )}
 
@@ -2014,50 +1725,6 @@ If nothing notable, respond: {"alerts":[]}`,
               </div>
             )}
 
-            {/* POST */}
-            {activeTab==="post"&&(
-              <div style={{padding:"14px 12px",display:"flex",flexDirection:"column",gap:"10px"}}>
-                <div style={{background:C.bg0,border:`1px solid #ff8c0033`,borderRadius:"6px",padding:"14px"}}>
-                  <div style={{fontFamily:"'Orbitron',monospace",fontSize:"9px",color:"#ff8c00",letterSpacing:"0.12em",marginBottom:"8px"}}>📷 POST GENERATOR</div>
-                  <div style={{fontSize:"11px",color:C.text,lineHeight:"1.65"}}>
-                    Click the <span style={{color:"#cc88ff",fontFamily:"'Share Tech Mono',monospace"}}>📷</span> button on any event in the Events tab, or click <strong style={{color:"#cc88ff"}}>📷 GENERATE POST</strong> in the event detail panel.
-                  </div>
-                  <div style={{marginTop:"10px",fontSize:"11px",color:C.muted,lineHeight:"1.65"}}>
-                    AVOSINT will automatically:
-                  </div>
-                  <div style={{marginTop:"6px",display:"flex",flexDirection:"column",gap:"6px"}}>
-                    {["Render a 1080×1080 branded image card","Write an AI-optimized caption + hashtags","Let you edit the caption before posting","Provide one-click download (PNG) + copy"].map((s,i)=>(
-                      <div key={i} style={{display:"flex",alignItems:"flex-start",gap:"8px",fontSize:"11px",color:C.muted}}>
-                        <span style={{color:"#ff8c00",flexShrink:0}}>▸</span>{s}
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{marginTop:"12px",padding:"10px",background:C.bg1,border:`1px solid ${C.border}`,borderRadius:"4px",fontSize:"10px",color:C.muted,lineHeight:1.5}}>
-                    📱 Works with any platform: copy the caption and save the image, then post manually to Instagram, X/Twitter, LinkedIn, or any other platform of your choice. No API keys or paid subscriptions required.
-                  </div>
-                </div>
-                <div style={{background:C.bg0,border:`1px solid ${C.border}`,borderRadius:"6px",padding:"12px"}}>
-                  <div style={{fontFamily:"'Orbitron',monospace",fontSize:"8px",color:C.muted,letterSpacing:"0.12em",marginBottom:"8px"}}>QUICK ACTIONS</div>
-                  <div style={{fontSize:"11px",color:C.muted,marginBottom:"10px",fontFamily:"'Share Tech Mono',monospace"}}>
-                    {filteredIncidents.length} events available · click any to generate
-                  </div>
-                  {filteredIncidents.slice(0,5).map(ev=>{
-                    const sev=SEVERITY_META[ev.severity]||SEVERITY_META.medium;
-                    return (
-                      <div key={ev.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:`1px solid ${C.border}`}}>
-                        <div style={{fontSize:"10px",color:C.text}}>{ev.aircraft.slice(0,18)} · <span style={{color:C.muted}}>{ev.location.split(",")[0]}</span></div>
-                        <button onClick={()=>{generatePost(ev);}} disabled={generatingEventId===ev.id}
-                          style={{...btn,padding:"3px 8px",fontSize:"9px",color:generatingEventId===ev.id?C.muted:"#ff8c00",border:`1px solid ${generatingEventId===ev.id?C.border:"#ff8c0044"}`,flexShrink:0,marginLeft:"6px"}}>
-                          {generatingEventId===ev.id?"…":"📷"}
-                        </button>
-                      </div>
-                    );
-                  })}
-                  {filteredIncidents.length>5&&<div style={{fontSize:"9px",color:C.muted,textAlign:"center",marginTop:"6px",fontFamily:"'Share Tech Mono',monospace"}}>+{filteredIncidents.length-5} more in Events tab</div>}
-                </div>
-              </div>
-            )}
-
             {/* ALERTS */}
             {activeTab==="alerts"&&(
               <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
@@ -2164,15 +1831,12 @@ If nothing notable, respond: {"alerts":[]}`,
           {/* Event detail panel */}
           {selectedEvent&&activeTab==="events"&&(
             <div style={{borderTop:`2px solid ${C.accent}44`,background:C.bg1,height:"52%",display:"flex",flexDirection:"column"}}>
-              <DetailPanel ev={selectedEvent} onClose={()=>setSelectedEvent(null)} onGeneratePost={generatePost} generating={generatingEventId===selectedEvent?.id}/>
+              <DetailPanel ev={selectedEvent} onClose={()=>setSelectedEvent(null)}/>
             </div>
           )}
         </div>
 
       </div>{/* end body */}
-
-      {/* ══ POST MODAL ══════════════════════════════════════════════════════ */}
-      <PostModal state={postModal} onClose={()=>setPostModal(p=>({...p,open:false}))}/>
 
       {/* ══ AI CHAT DRAWER ══════════════════════════════════════════════════ */}
       <AIChatDrawer open={chatOpen} onToggle={()=>setChatOpen(v=>!v)} dashboardState={chatDashboardState}/>
