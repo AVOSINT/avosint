@@ -68,6 +68,31 @@ function extractFormFields(html) {
     fields[name] = selOpt ? selOpt[1] : "";
   }
 
+  // Checked checkboxes — browsers only submit checked boxes, so replicate that
+  for (const m of html.matchAll(/<input[^>]+type=["']?checkbox["']?[^>]*checked[^>]*name=["']([^"']+)["'][^>]*(?:value=["']([^"']*)["'])?/gi))
+    if (!(m[1] in fields)) fields[m[1]] = m[2] || "on";
+  for (const m of html.matchAll(/<input[^>]+name=["']([^"']+)["'][^>]*type=["']?checkbox["']?[^>]*checked[^>]*(?:value=["']([^"']*)["'])?/gi))
+    if (!(m[1] in fields)) fields[m[1]] = m[2] || "on";
+  for (const m of html.matchAll(/<input[^>]+checked[^>]*name=["']([^"']+)["'][^>]*type=["']?checkbox["']?[^>]*(?:value=["']([^"']*)["'])?/gi))
+    if (!(m[1] in fields)) fields[m[1]] = m[2] || "on";
+
+  // Also try to enable the Narrative/Remarks output column if the form has it
+  // (SDR lets users select which columns appear — narrative is often opt-in)
+  const narrativeCandidates = [
+    "ctl00$pageContentPlaceHolder$chkNarrative",
+    "ctl00$pageContentPlaceHolder$chkRemarks",
+    "ctl00$pageContentPlaceHolder$cbNarrative",
+    "ctl00$pageContentPlaceHolder$cbRemarks",
+    "ctl00$pageContentPlaceHolder$chkDifficultyNarrative",
+    "ctl00$pageContentPlaceHolder$chkDifficulty",
+    "ctl00$pageContentPlaceHolder$chkDifficultyCode",
+  ];
+  for (const n of narrativeCandidates) if (!(n in fields)) fields[n] = "on";
+
+  // Log checkbox fields found so we can see what output-field checkboxes exist
+  const checkboxFields = Object.keys(fields).filter(k => narrativeCandidates.includes(k) || /chk|cbx|cb[A-Z]/i.test(k));
+  if (checkboxFields.length) console.log(`[SDR] Checkbox fields in form: ${checkboxFields.join(", ")}`);
+
   // Submit buttons — include the first one we find
   const sub = html.match(/<input[^>]+type=["']?submit["']?[^>]*name=["']([^"']+)["'][^>]*value=["']([^"']*)["']/i)
            || html.match(/<input[^>]+name=["']([^"']+)["'][^>]*type=["']?submit["']?[^>]*value=["']([^"']*)["']/i);
@@ -112,13 +137,15 @@ function findDateFields(html, allFields) {
 }
 
 /** Returns true if the HTML looks like the search form was returned
- *  (i.e. POST failed) rather than actual search results. */
+ *  (i.e. POST failed) rather than actual search results.
+ *  NOTE: The results page often still has the search form in its sidebar,
+ *  so we must not trigger on form presence alone — only on absence of results. */
 function looksLikeFormPage(html) {
-  // The form page contains the "Output Fields" selection section
-  if (/output\s+fields|available\s+fields|select.*fields/i.test(html)) return true;
-  // The form page has the search submit button visible
-  if (/<input[^>]+type=["']submit["'][^>]*value=["']Search["']/i.test(html) &&
-      !/<table[^>]*>[\s\S]{500,}<\/table>/i.test(html)) return true;
+  // If no table with meaningful data rows exists, assume we got the form back
+  const hasBigTable = /<table[^>]*>[\s\S]{800,}<\/table>/i.test(html);
+  if (!hasBigTable) return true;
+  // If the result length is almost identical to the form, nothing was returned
+  // (caller checks this separately by size comparison)
   return false;
 }
 
@@ -228,7 +255,9 @@ export default async function handler(req, res) {
     const events = parseSdrResults(resultHtml);
     console.log(`[SDR] Parsed: ${events.length} events`);
 
-    res.setHeader("Cache-Control","max-age=1800");
+    // no-store: SDR data changes frequently and the 30-min cache was serving
+    // stale responses to the browser even after the API returned fresh data.
+    res.setHeader("Cache-Control","no-store");
     return res.status(200).json({ events, count:events.length, source:"SDR" });
 
   } catch(err) {
@@ -278,13 +307,13 @@ function parseSdrResults(html) {
       return "";
     };
 
-    const dateRaw=get("date","DT")|| "";
-    const make   =get("make","manufacturer")||cells[1]||"Unknown";
-    const model  =get("model","Model")||"";
-    const reg    =get("reg","registration","n-number","n number","tail","nnum")||"";
-    const op     =get("operator","carrier","airline","designator")||"";
-    const diff   =get("difficulty","diff","problem","code","difficulty code")||"";
-    const narr   =get("narrative","narr","description","remarks","remark")||cells.slice(-1)[0]||"";
+    const dateRaw=get("date","DifficultyDate","DT")||"";
+    const make   =get("make","Aircraft Make","manufacturer")||cells[1]||"Unknown";
+    const model  =get("model","Aircraft Model")||"";
+    const reg    =get("N-Number","reg","registration","n number","tail","nnum")||"";
+    const op     =get("OperatorDesignator","operator","carrier","airline","designator")||"";
+    const diff   =get("JASCCode","difficulty","diff","problem","code")||"";
+    const narr   =get("narrative","narr","Narrative","description","remarks","remark","Remarks")||"";
     const airport=get("airport","city","location","place")||"";
 
     // Skip rows that still look like column-name rows
@@ -298,6 +327,9 @@ function parseSdrResults(html) {
 
     const [lat,lon]=coordsFor(`${airport} ${op}`);
     const isCrit=/fire|smoke|struct|fracture|crack|fail/i.test(diff+narr);
+    // Build a useful description even when the narrative column is absent
+    const ctrlNum=get("Unique Control","control","ctrl","UCN")||"";
+    const descParts=[narr,diff?`JASC: ${diff}`:"",ctrlNum?`SDR#: ${ctrlNum}`:""].filter(Boolean);
     events.push({
       id:`SDR-${isoDate}-${events.length}`,
       type:"incident",
@@ -309,7 +341,7 @@ function parseSdrResults(html) {
       location:airport||op||"Not reported",
       lat, lon,
       injuries:"Not reported", fatalities:0, phase:"Unknown",
-      description:(narr||`SDR: ${diff}`).slice(0,600),
+      description:descParts.join(" · ").slice(0,600)||"SDR difficulty report — see sdrs.faa.gov for details",
       source:"SDR", url:"https://sdrs.faa.gov/",
     });
   }
