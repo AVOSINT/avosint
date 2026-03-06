@@ -778,36 +778,6 @@ export default function AviationDashboard() {
     mapRef.current.flyTo(r.center,r.zoom,{duration:1.5,easeLinearity:0.3});
   },[region]);
 
-  /* ── ACARS pinned-flight map highlight ────────────────────────────────── */
-  useEffect(()=>{
-    if(!mapRef.current) return;
-    const L=window.L;
-    // Remove previous highlight
-    if(acarsHighlightRef.current){acarsHighlightRef.current.remove();acarsHighlightRef.current=null;}
-    if(!pinnedFlight) return;
-    const s=flightByIcao[pinnedFlight.toLowerCase()];
-    if(!s||s[5]==null||s[6]==null) return;
-    const lat=s[6],lon=s[5];
-    // Pan map to the aircraft
-    mapRef.current.flyTo([lat,lon],8,{duration:1.2,easeLinearity:0.3});
-    // Draw a pulsing dashed ring around the aircraft
-    acarsHighlightRef.current=L.circle([lat,lon],{
-      radius:25000,          // ~25 km ring
-      color:"#00e5ff",
-      fillColor:"#00e5ff",
-      fillOpacity:0.06,
-      weight:2,
-      dashArray:"8 5",
-      opacity:0.9,
-    }).addTo(mapRef.current);
-    // Auto-clear the highlight after 30 seconds
-    const t=setTimeout(()=>{
-      if(acarsHighlightRef.current){acarsHighlightRef.current.remove();acarsHighlightRef.current=null;}
-      setPinnedFlight(null);
-    },30000);
-    return ()=>clearTimeout(t);
-  },[pinnedFlight,flightByIcao]);
-
   /* ── Fetch OpenSky (browser-direct — bypasses Vercel IP blocks) ─────────── */
   // OpenSky blocks cloud-provider IPs but allows regular browser requests.
   // Calling directly from the browser uses the user's own IP, which works fine.
@@ -1107,6 +1077,33 @@ If nothing notable, respond: {"alerts":[]}`,
     flights.forEach(s=>{if(s[1]?.trim()) m[s[1].trim().toUpperCase()]=s;});
     return m;
   },[flights]);
+
+  /* ── ACARS pinned-flight map highlight ────────────────────────────────── */
+  // NOTE: must live AFTER flightByIcao/flightByCallsign — dep array refs them at render time.
+  useEffect(()=>{
+    if(!mapRef.current) return;
+    const L=window.L;
+    if(acarsHighlightRef.current){acarsHighlightRef.current.remove();acarsHighlightRef.current=null;}
+    if(!pinnedFlight) return;
+    const s=flightByIcao[pinnedFlight.toLowerCase()];
+    if(!s||s[5]==null||s[6]==null) return;
+    const lat=s[6],lon=s[5];
+    mapRef.current.flyTo([lat,lon],8,{duration:1.2,easeLinearity:0.3});
+    acarsHighlightRef.current=L.circle([lat,lon],{
+      radius:25000,
+      color:"#00e5ff",
+      fillColor:"#00e5ff",
+      fillOpacity:0.06,
+      weight:2,
+      dashArray:"8 5",
+      opacity:0.9,
+    }).addTo(mapRef.current);
+    const t=setTimeout(()=>{
+      if(acarsHighlightRef.current){acarsHighlightRef.current.remove();acarsHighlightRef.current=null;}
+      setPinnedFlight(null);
+    },30000);
+    return ()=>clearTimeout(t);
+  },[pinnedFlight,flightByIcao]);
 
   /* ── ACARS human-message filter ──────────────────────────────────────── */
   // Only H1 (free-text), 22, 80 are used for pilot/dispatcher conversations.
