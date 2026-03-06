@@ -648,6 +648,7 @@ export default function AviationDashboard() {
   const [acarsAlerts,setAcarsAlerts]=useState([]); // AI-flagged messages
   const [acarsAiRunning,setAcarsAiRunning]=useState(false);
   const [acarsHumanOnly,setAcarsHumanOnly]=useState(true); // filter to pilot/dispatcher comms
+  const [acarsLiveOnly,setAcarsLiveOnly]=useState(false);  // only messages with live position match
   const acarsApiAvailable=useRef(null); // null=unknown, true=ok, false=no key
 
   // ── Weather state ─────────────────────────────────────────────────────────
@@ -1076,19 +1077,35 @@ If nothing notable, respond: {"alerts":[]}`,
   },[flights]);
 
   /* ── ACARS human-message filter ──────────────────────────────────────── */
-  // Labels primarily used for free-text pilot/dispatcher messaging (ARINC 618)
-  const ACARS_HUMAN_LABELS=new Set(["H1","22","80","_d","QX","B6","B7","B8"]);
-  // Pattern that flags obviously automated content even on human labels
-  const ACARS_AUTO_RE=/^[0-9N\-EW+\s,.]{18,}$|POSRPT|OOOIREP|FMCWPR|DFDR|WXRPT|ATIS\s|^ATIS$/i;
+  // Only H1 (free-text), 22, 80 are associated with actual pilot/dispatcher conversations.
+  // B6/B7/B8 are OOOI automated departure/arrival reports — removed from whitelist.
+  const ACARS_CONVO_LABELS=new Set(["H1","22","80"]);
+  // Keywords that indicate automated data even on conversation labels
+  const ACARS_AUTO_KW=/POSRPT|OOOIREP|FMCWPR|DFDR|WXRPT|^ATIS|W\/B\b|LOADSHEET|UPLNK|DNLNK|ZFW\b|TOW\b|FUELLOAD|DATALINK|ACARS MSG|UNIT LOAD|WEIGHT.*BAL/i;
+  // Score a message body: returns true if it looks like readable human text
+  function looksHuman(text){
+    const t=(text||"").trim();
+    if(t.length<12) return false;                           // too short
+    const words=(t.match(/[a-zA-Z]{3,}/g)||[]);            // words ≥ 3 letters
+    if(words.length<2) return false;                        // need at least 2 real words
+    const letters=(t.match(/[a-zA-Z]/g)||[]).length;
+    if(letters/t.length<0.35) return false;                 // must be ≥35% alphabetic
+    if(ACARS_AUTO_KW.test(t)) return false;                 // blocklist keywords
+    return true;
+  }
   const filteredAcarsMessages=useMemo(()=>{
-    if(!acarsHumanOnly) return acarsMessages;
-    return acarsMessages.filter(m=>{
-      if(!ACARS_HUMAN_LABELS.has(m.label)) return false; // drop automated labels
-      if(ACARS_AUTO_RE.test((m.text||"").trim())) return false; // drop automated content
-      if((m.text||"").trim().length<4) return false; // drop near-empty
-      return true;
-    });
-  },[acarsMessages,acarsHumanOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+    let msgs=acarsMessages;
+    if(acarsHumanOnly){
+      msgs=msgs.filter(m=>ACARS_CONVO_LABELS.has(m.label)&&looksHuman(m.text));
+    }
+    if(acarsLiveOnly){
+      msgs=msgs.filter(m=>
+        (m.icao&&flightByIcao[m.icao.toLowerCase()])||
+        (m.callsign&&flightByCallsign[m.callsign.trim().toUpperCase()])
+      );
+    }
+    return msgs;
+  },[acarsMessages,acarsHumanOnly,acarsLiveOnly,flightByIcao,flightByCallsign]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Flight markers ──────────────────────────────────────────────────── */
   useEffect(()=>{
@@ -1651,7 +1668,12 @@ If nothing notable, respond: {"alerts":[]}`,
                   </div>
                   <div style={{display:"flex",gap:"5px",alignItems:"center"}}>
                     {acarsAiRunning&&<span style={{fontSize:"9px",color:"#00e5ff",fontFamily:"'Orbitron',monospace",animation:"blink 0.6s step-end infinite"}}>AI SCAN…</span>}
-                    <button onClick={()=>setAcarsHumanOnly(v=>!v)} title={acarsHumanOnly?"Show all messages":"Show human messages only"} style={{...btn,fontSize:"8px",padding:"2px 8px",fontFamily:"'Orbitron',monospace",color:acarsHumanOnly?"#00e5ff":C.muted,border:`1px solid ${acarsHumanOnly?"#00e5ff55":"#33333388"}`,background:acarsHumanOnly?"#00e5ff11":"transparent",letterSpacing:"0.06em"}}>HUMAN ONLY</button>
+                    <button onClick={()=>setAcarsHumanOnly(v=>!v)} title={acarsHumanOnly?"Show all messages":"Show human messages only"} style={{...btn,fontSize:"8px",padding:"2px 8px",fontFamily:"'Orbitron',monospace",color:acarsHumanOnly?"#00e5ff":C.muted,border:`1px solid ${acarsHumanOnly?"#00e5ff55":"#33333388"}`,background:acarsHumanOnly?"#00e5ff11":"transparent",letterSpacing:"0.06em"}}>
+                      {acarsHumanOnly?"☑":"☐"} HUMAN
+                    </button>
+                    <button onClick={()=>setAcarsLiveOnly(v=>!v)} title={acarsLiveOnly?"Show all messages":"Show only messages with live position"} style={{...btn,fontSize:"8px",padding:"2px 8px",fontFamily:"'Orbitron',monospace",color:acarsLiveOnly?"#22dd77":C.muted,border:`1px solid ${acarsLiveOnly?"#22dd7755":"#33333388"}`,background:acarsLiveOnly?"#22dd7711":"transparent",letterSpacing:"0.06em"}}>
+                      {acarsLiveOnly?"☑":"☐"} LIVE POS
+                    </button>
                     <button onClick={fetchAcars} style={{...btn,fontSize:"9px",padding:"2px 8px",fontFamily:"'Orbitron',monospace",color:"#00e5ff",border:"1px solid #00e5ff33"}}>⟳</button>
                   </div>
                 </div>
@@ -1690,7 +1712,10 @@ If nothing notable, respond: {"alerts":[]}`,
                 {/* Message feed */}
                 {filteredAcarsMessages.length===0&&acarsStatus!=="nokey"&&(
                   <div style={{padding:"24px",textAlign:"center",color:C.muted,fontFamily:"'Share Tech Mono',monospace",fontSize:"11px"}}>
-                    {acarsStatus==="loading"?"FETCHING MESSAGES…":acarsHumanOnly&&acarsMessages.length>0?"NO HUMAN MESSAGES IN CURRENT FEED — TOGGLE FILTER TO SEE ALL":"NO MESSAGES — CHECK API KEY OR RETRY"}
+                    {acarsStatus==="loading"?"FETCHING MESSAGES…"
+                      :acarsLiveOnly&&acarsMessages.length>0?"NO MESSAGES WITH LIVE POSITION — UNCHECK LIVE POS FILTER"
+                      :acarsHumanOnly&&acarsMessages.length>0?"NO HUMAN MESSAGES IN CURRENT FEED — UNCHECK HUMAN FILTER"
+                      :"NO MESSAGES — CHECK API KEY OR RETRY"}
                   </div>
                 )}
                 {filteredAcarsMessages.map((m,i)=>{
