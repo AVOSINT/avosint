@@ -649,6 +649,7 @@ export default function AviationDashboard() {
   const [acarsAiRunning,setAcarsAiRunning]=useState(false);
   const [acarsHumanOnly,setAcarsHumanOnly]=useState(true); // filter to pilot/dispatcher comms
   const [acarsLiveOnly,setAcarsLiveOnly]=useState(false);  // only messages with live position match
+  const [pinnedFlight,setPinnedFlight]=useState(null);     // ICAO hex pinned from ACARS click → map highlight
   const acarsApiAvailable=useRef(null); // null=unknown, true=ok, false=no key
 
   // ── Weather state ─────────────────────────────────────────────────────────
@@ -685,6 +686,7 @@ export default function AviationDashboard() {
   const mapRef=useRef(null);
   const flightLayerRef=useRef(null);
   const incidentLayerRef=useRef(null);
+  const acarsHighlightRef=useRef(null); // Leaflet circle/marker for ACARS-pinned aircraft
 
   /* ── Leaflet ─────────────────────────────────────────────────────────── */
   useEffect(()=>{
@@ -775,6 +777,36 @@ export default function AviationDashboard() {
     const r=REGIONS[region];
     mapRef.current.flyTo(r.center,r.zoom,{duration:1.5,easeLinearity:0.3});
   },[region]);
+
+  /* ── ACARS pinned-flight map highlight ────────────────────────────────── */
+  useEffect(()=>{
+    if(!mapRef.current) return;
+    const L=window.L;
+    // Remove previous highlight
+    if(acarsHighlightRef.current){acarsHighlightRef.current.remove();acarsHighlightRef.current=null;}
+    if(!pinnedFlight) return;
+    const s=flightByIcao[pinnedFlight.toLowerCase()];
+    if(!s||s[5]==null||s[6]==null) return;
+    const lat=s[6],lon=s[5];
+    // Pan map to the aircraft
+    mapRef.current.flyTo([lat,lon],8,{duration:1.2,easeLinearity:0.3});
+    // Draw a pulsing dashed ring around the aircraft
+    acarsHighlightRef.current=L.circle([lat,lon],{
+      radius:25000,          // ~25 km ring
+      color:"#00e5ff",
+      fillColor:"#00e5ff",
+      fillOpacity:0.06,
+      weight:2,
+      dashArray:"8 5",
+      opacity:0.9,
+    }).addTo(mapRef.current);
+    // Auto-clear the highlight after 30 seconds
+    const t=setTimeout(()=>{
+      if(acarsHighlightRef.current){acarsHighlightRef.current.remove();acarsHighlightRef.current=null;}
+      setPinnedFlight(null);
+    },30000);
+    return ()=>clearTimeout(t);
+  },[pinnedFlight,flightByIcao]);
 
   /* ── Fetch OpenSky (browser-direct — bypasses Vercel IP blocks) ─────────── */
   // OpenSky blocks cloud-provider IPs but allows regular browser requests.
@@ -1077,20 +1109,20 @@ If nothing notable, respond: {"alerts":[]}`,
   },[flights]);
 
   /* ── ACARS human-message filter ──────────────────────────────────────── */
-  // Only H1 (free-text), 22, 80 are associated with actual pilot/dispatcher conversations.
-  // B6/B7/B8 are OOOI automated departure/arrival reports — removed from whitelist.
+  // Only H1 (free-text), 22, 80 are used for pilot/dispatcher conversations.
   const ACARS_CONVO_LABELS=new Set(["H1","22","80"]);
-  // Keywords that indicate automated data even on conversation labels
-  const ACARS_AUTO_KW=/POSRPT|OOOIREP|FMCWPR|DFDR|WXRPT|^ATIS|W\/B\b|LOADSHEET|UPLNK|DNLNK|ZFW\b|TOW\b|FUELLOAD|DATALINK|ACARS MSG|UNIT LOAD|WEIGHT.*BAL/i;
-  // Score a message body: returns true if it looks like readable human text
+  // Positive-signal approach: require at least one word that humans type but
+  // automated systems don't. This is far more reliable than a blocklist because
+  // ACARS H1 is used for enormous amounts of formatted operational data.
+  const ACARS_HUMAN_SIGNAL=/\b(please|unable|confirm|request|advise|medical|emergency|problem|fault|issue|divert|pax|passenger|crew|question|thank|sorry|understand|roger|wilco|expedite|minimum|alternate|standby|negative|affirm|appreciate|urgent|priority|require|need|holding|proceed|depart|landed|airborne|onboard|returning|diverting|cancel|check|report|checking|reported|inform|notified|noted|aware|copied|ready|available|unavailable|inoperative|inop|aog|squawk|declare|declared|minimum fuel|fuel state|fuel critical)\b/i;
   function looksHuman(text){
     const t=(text||"").trim();
-    if(t.length<12) return false;                           // too short
-    const words=(t.match(/[a-zA-Z]{3,}/g)||[]);            // words ≥ 3 letters
-    if(words.length<2) return false;                        // need at least 2 real words
-    const letters=(t.match(/[a-zA-Z]/g)||[]).length;
-    if(letters/t.length<0.35) return false;                 // must be ≥35% alphabetic
-    if(ACARS_AUTO_KW.test(t)) return false;                 // blocklist keywords
+    if(t.length<10) return false;
+    // Must contain at least one human-signal word
+    if(!ACARS_HUMAN_SIGNAL.test(t)) return false;
+    // Must have at least 2 word-like sequences (rules out single-keyword stubs)
+    const words=(t.match(/[a-zA-Z]{3,}/g)||[]);
+    if(words.length<2) return false;
     return true;
   }
   const filteredAcarsMessages=useMemo(()=>{
@@ -1727,8 +1759,9 @@ If nothing notable, respond: {"alerts":[]}`,
                   const liveSpd=liveFlight?Math.round((liveFlight[9]||0)*1.94384):null; // m/s→kt
                   const liveHdg=liveFlight?Math.round(liveFlight[10]||0):null;
                   const liveGnd=liveFlight?liveFlight[8]:null;
+                  const isPinned=pinnedFlight&&liveFlight&&liveFlight[0]?.toLowerCase()===pinnedFlight.toLowerCase();
                   return (
-                    <div key={m.id||i} style={{padding:"8px 10px",background:isAlerted?"#00e5ff08":C.bg0,border:`1px solid ${isAlerted?"#00e5ff33":C.border}`,borderRadius:"4px",borderLeft:`3px solid ${liveFlight?"#22dd77":isAlerted?"#00e5ff":C.border}`}}>
+                    <div key={m.id||i} style={{padding:"8px 10px",background:isPinned?"#00e5ff0f":isAlerted?"#00e5ff08":C.bg0,border:`1px solid ${isPinned?"#00e5ff55":isAlerted?"#00e5ff33":C.border}`,borderRadius:"4px",borderLeft:`3px solid ${isPinned?"#00e5ff":liveFlight?"#22dd77":isAlerted?"#00e5ff":C.border}`}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"3px"}}>
                         <div style={{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}}>
                           <span style={{fontFamily:"'Orbitron',monospace",fontSize:"10px",color:"#00e5ff",fontWeight:"bold"}}>{m.callsign}</span>
@@ -1738,6 +1771,14 @@ If nothing notable, respond: {"alerts":[]}`,
                               {!liveGnd&&liveSpd?` · ${liveSpd}kt`:""}
                               {!liveGnd&&liveHdg!=null?` · ${liveHdg}°`:""}
                             </span>
+                          )}
+                          {liveFlight&&(
+                            <button
+                              onClick={()=>setPinnedFlight(isPinned?null:liveFlight[0])}
+                              title={isPinned?"Clear map highlight":"Locate on map"}
+                              style={{...btn,fontSize:"8px",padding:"1px 7px",fontFamily:"'Orbitron',monospace",color:isPinned?"#00e5ff":"#22dd77",border:`1px solid ${isPinned?"#00e5ff55":"#22dd7755"}`,background:isPinned?"#00e5ff11":"transparent",letterSpacing:"0.04em"}}>
+                              {isPinned?"✕ LOCATED":"📍 LOCATE"}
+                            </button>
                           )}
                           {m.label&&<span style={{fontSize:"8px",background:"#00e5ff18",color:"#00e5ff",padding:"1px 5px",borderRadius:"3px",fontFamily:"'Share Tech Mono',monospace"}}>LBL:{m.label}</span>}
                           {m.freq&&<span style={{fontSize:"9px",color:C.muted,fontFamily:"'Share Tech Mono',monospace"}}>{m.freq}</span>}
