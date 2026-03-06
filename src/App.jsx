@@ -33,7 +33,7 @@ const EVENT_META = {
 };
 
 const AIRCRAFT_CATEGORIES = [
-  "All Types","Commercial","General Aviation","Helicopter","Military",
+  "All Types","Commercial","General Aviation","Military",
 ];
 
 const CARRIERS = [
@@ -1047,29 +1047,13 @@ If nothing notable, respond: {"alerts":[]}`,
     }
     // Aircraft category filter
     // OpenSky does not provide aircraft type data, so classification is callsign-based.
-    // Helicopter detection uses known ICAO operator codes + keyword patterns.
+    // Categories: Commercial (known airline callsign prefix), Military, General Aviation (everything else).
     if(aircraftCat!=="All Types"){
       const cs=(s[1]||"").trim().toUpperCase();
       const isMil=isMilitaryCallsign(cs);
-      // Known helicopter operator ICAO callsign prefixes
-      const HELI_PREFIXES=new Set([
-        // US offshore / oil & gas
-        "PHI","ERA","CHC","HAI","AIW","NOR","OHS","GOM",
-        // Air ambulance / EMS (predominantly rotorcraft)
-        "HAA","AMB","MED","EMT","AEA","GTL","PAK","NNE",
-        // Tour & utility helicopter companies
-        "BLU","PPH","SFH","HAW","AIH","SKY","ZAP",
-        // Canadian & international rotorcraft
-        "CDN","CHL","VIH","PRV","HMI","CRH",
-      ]);
-      const cs3=cs.slice(0,3);
-      const isHeli=HELI_PREFIXES.has(cs3)
-        || /^(HELI|HELO|ROTOR|COPTER|LIFEFLIGHT|LIFESTAR|AIRMED|MEDEVAC|MEDSTAR|CAREFLITE|OMNIFLIGHT|ORNGE|MERCY|AIREVAC|REACH\d|STARS\d)/.test(cs)
-        || cs.includes("HELI") || cs.includes("HELO") || cs.includes("ROTOR");
-      const isCommercial=!isMil&&!isHeli&&!!CARRIER_CALLSIGN_MAP[cs.slice(0,3)];
-      const isGA=!isMil&&!isHeli&&!isCommercial;
+      const isCommercial=!isMil&&!!CARRIER_CALLSIGN_MAP[cs.slice(0,3)];
+      const isGA=!isMil&&!isCommercial;
       if(aircraftCat==="Military"        &&!isMil)       return false;
-      if(aircraftCat==="Helicopter"      &&!isHeli)      return false;
       if(aircraftCat==="Commercial"      &&!isCommercial)return false;
       if(aircraftCat==="General Aviation"&&!isGA)        return false;
     }
