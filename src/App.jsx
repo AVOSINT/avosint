@@ -27,6 +27,7 @@ const SEVERITY_META = {
 const EVENT_META = {
   accident:{ icon:"💥",color:"#ff2222",label:"Accident" },
   incident:{ icon:"⚠️", color:"#ffb300",label:"Incident" },
+  sdr:     { icon:"🔧",color:"#ffb300",label:"SDR"      },
   military:{ icon:"✦", color:"#4488ff",label:"Military" },
   vip:     { icon:"★", color:"#cc88ff",label:"VIP/Gov"  },
   acars:   { icon:"📡", color:"#00e5ff",label:"ACARS"    },
@@ -441,7 +442,23 @@ function DetailPanel({ev,onClose}) {
         <button onClick={onClose} style={{...btn,padding:"3px 10px",fontSize:"14px",color:C.muted}}>×</button>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"14px"}}>
-        {[["REG",ev.reg||"N/A"],["CATEGORY",ev.category||"—"],["CARRIER",ev.carrier||"Independent"],["PHASE",ev.phase||"—"],["DATE",ev.date],["SOURCE",ev.source],["INJURIES",ev.injuries||"Not reported"],["FATALITIES",ev.fatalities>0?`${ev.fatalities} FATAL`:"NONE"]].map(([k,v])=>(
+        {(ev.source==="SDR"
+          ? [
+              ["SDR #",   ev.ctrlNum||"N/A"],
+              ["JASC CODE",ev.jascCode||"—"],
+              ["N-NUMBER",ev.reg||"N/A"],
+              ["OPERATOR",ev.carrier||"—"],
+              ["AIRCRAFT", ev.aircraft||"—"],
+              ["DATE",    ev.date],
+            ]
+          : [
+              ["REG",ev.reg||"N/A"],["CATEGORY",ev.category||"—"],
+              ["CARRIER",ev.carrier||"Independent"],["PHASE",ev.phase||"—"],
+              ["DATE",ev.date],["SOURCE",ev.source],
+              ["INJURIES",ev.injuries||"Not reported"],
+              ["FATALITIES",ev.fatalities>0?`${ev.fatalities} FATAL`:"NONE"],
+            ]
+        ).map(([k,v])=>(
           <div key={k} style={{background:C.bg0,border:`1px solid ${C.border}`,borderRadius:"4px",padding:"7px 9px"}}>
             <div style={{fontSize:"8px",color:C.muted,letterSpacing:"0.12em",fontFamily:"'Orbitron',monospace",marginBottom:"3px"}}>{k}</div>
             <div style={{fontSize:"11px",color:(k==="FATALITIES"&&ev.fatalities>0)?C.danger:C.text,fontFamily:"'Share Tech Mono',monospace",fontWeight:k==="FATALITIES"&&ev.fatalities>0?"bold":"normal"}}>{v}</div>
@@ -457,8 +474,13 @@ function DetailPanel({ev,onClose}) {
       </div>
       <div>
         <div style={{fontSize:"8px",color:C.muted,letterSpacing:"0.12em",fontFamily:"'Orbitron',monospace",marginBottom:"5px"}}>
-          {ev.source==="ASIAS"?"PRELIMINARY NARRATIVE — SUBJECT TO CHANGE":"INCIDENT NARRATIVE"}
+          {ev.source==="ASIAS"?"PRELIMINARY NARRATIVE — SUBJECT TO CHANGE":ev.source==="SDR"?"DIFFICULTY NARRATIVE":"INCIDENT NARRATIVE"}
         </div>
+        {ev.source==="SDR"&&(
+          <div style={{marginBottom:"8px",padding:"6px 9px",background:"#1a1200",border:"1px solid #ffb30044",borderRadius:"4px",fontSize:"10px",color:"#ffdd77",fontFamily:"'Share Tech Mono',monospace",lineHeight:1.5}}>
+            🔧 FAA Service Difficulty Report — submitted by operator/maintenance personnel. Not an accident or incident. See <a href="https://sdrs.faa.gov/" target="_blank" rel="noopener noreferrer" style={{color:"#ffb300"}}>sdrs.faa.gov</a> for full record.
+          </div>
+        )}
         {ev.source==="ASIAS"&&(
           <div style={{marginBottom:"8px",padding:"6px 9px",background:"#1a0800",border:"1px solid #ff664444",borderRadius:"4px",fontSize:"10px",color:"#ff9966",fontFamily:"'Share Tech Mono',monospace",lineHeight:1.5}}>
             ⚠ FAA ASIAS preliminary data. All information is subject to change pending investigation. Window: last 10 business days only.
@@ -1326,7 +1348,8 @@ If nothing notable, respond: {"alerts":[]}`,
           <StatPill label="AIRBORNE"  value={airborne}  color={C.safe}/>
           <StatPill label="EMERGENCY" value={emergency}  color={C.danger} blink/>
           <StatPill label="EVENTS" value={filteredIncidents.length} color="#ff5533"/>
-          <StatPill label="INCIDENTS" value={incidents.length}  color={C.warn}/>
+          <StatPill label="INCIDENTS" value={incidents.filter(e=>e.source!=="SDR").length} color={C.warn}/>
+          <StatPill label="SDR" value={incidents.filter(e=>e.source==="SDR").length} color="#ffb300"/>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
 

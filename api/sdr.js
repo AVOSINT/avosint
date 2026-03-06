@@ -332,7 +332,7 @@ function parseSdrResults(html) {
     const descParts=[narr,diff?`JASC: ${diff}`:"",ctrlNum?`SDR#: ${ctrlNum}`:""].filter(Boolean);
     events.push({
       id:`SDR-${isoDate}-${events.length}`,
-      type:"incident",
+      type:"sdr",
       severity:isCrit?"high":"low",
       date:isoDate,
       aircraft:`${make} ${model}`.trim().slice(0,60)||"Unknown",
@@ -341,6 +341,9 @@ function parseSdrResults(html) {
       location:airport||op||"Not reported",
       lat, lon,
       injuries:"Not reported", fatalities:0, phase:"Unknown",
+      // SDR-specific fields for the detail panel
+      ctrlNum:ctrlNum||null,
+      jascCode:diff||null,
       description:descParts.join(" · ").slice(0,600)||"SDR difficulty report — see sdrs.faa.gov for details",
       source:"SDR", url:"https://sdrs.faa.gov/",
     });

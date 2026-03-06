@@ -146,9 +146,17 @@ function parseCsv(text) {
       ? `${remark.slice(0, 500)}${damage ? ` Aircraft damage: ${damage}.` : ""}`
       : `${evType||"Event"} involving ${make} ${model} in ${location}. Phase: ${phase||"unknown"}. All information is preliminary.`;
 
+    // Classify as Accident only if there are fatalities, serious injuries,
+    // or substantial/destroyed aircraft damage — otherwise Incident.
+    const isFatalEvent = /yes|y/i.test(fatalFlag);
+    const hasSeriousInjury = /serious/i.test(injLvl);
+    const hasSubstantialDamage = /substantial|destroyed/i.test(damage);
+    const eventType = (isFatalEvent || hasSeriousInjury || hasSubstantialDamage)
+      ? "accident" : "incident";
+
     events.push({
       id:          `ASIAS-${isoDate}-${i}`,
-      type:        /accident/i.test(evType) ? "accident" : "incident",
+      type:        eventType,
       severity:    severityFromInjury(injLvl, fatalFlag),
       date:        isoDate,
       aircraft:    `${make} ${model}`.trim().slice(0, 60) || "Unknown",
