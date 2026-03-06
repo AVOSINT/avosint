@@ -647,6 +647,7 @@ export default function AviationDashboard() {
   const [acarsUpdated,setAcarsUpdated]=useState(null);
   const [acarsAlerts,setAcarsAlerts]=useState([]); // AI-flagged messages
   const [acarsAiRunning,setAcarsAiRunning]=useState(false);
+  const [acarsHumanOnly,setAcarsHumanOnly]=useState(true); // filter to pilot/dispatcher comms
   const acarsApiAvailable=useRef(null); // null=unknown, true=ok, false=no key
 
   // ── Weather state ─────────────────────────────────────────────────────────
@@ -1060,6 +1061,34 @@ If nothing notable, respond: {"alerts":[]}`,
     if(searchText){const q=searchText.toLowerCase();if(!`${s[1]} ${s[2]} ${s[14]}`.toLowerCase().includes(q))return false;}
     return true;
   }),[flights,squawkFilter,eventTypes,searchText,onGroundHide,carrier,aircraftCat]);
+
+  /* ── Flight lookup maps for ACARS cross-reference ─────────────────────── */
+  // Maps icao24 hex → flight state array, and callsign → flight state array
+  const flightByIcao=useMemo(()=>{
+    const m={};
+    flights.forEach(s=>{if(s[0]) m[s[0].toLowerCase()]=s;});
+    return m;
+  },[flights]);
+  const flightByCallsign=useMemo(()=>{
+    const m={};
+    flights.forEach(s=>{if(s[1]?.trim()) m[s[1].trim().toUpperCase()]=s;});
+    return m;
+  },[flights]);
+
+  /* ── ACARS human-message filter ──────────────────────────────────────── */
+  // Labels primarily used for free-text pilot/dispatcher messaging (ARINC 618)
+  const ACARS_HUMAN_LABELS=new Set(["H1","22","80","_d","QX","B6","B7","B8"]);
+  // Pattern that flags obviously automated content even on human labels
+  const ACARS_AUTO_RE=/^[0-9N\-EW+\s,.]{18,}$|POSRPT|OOOIREP|FMCWPR|DFDR|WXRPT|ATIS\s|^ATIS$/i;
+  const filteredAcarsMessages=useMemo(()=>{
+    if(!acarsHumanOnly) return acarsMessages;
+    return acarsMessages.filter(m=>{
+      if(!ACARS_HUMAN_LABELS.has(m.label)) return false; // drop automated labels
+      if(ACARS_AUTO_RE.test((m.text||"").trim())) return false; // drop automated content
+      if((m.text||"").trim().length<4) return false; // drop near-empty
+      return true;
+    });
+  },[acarsMessages,acarsHumanOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Flight markers ──────────────────────────────────────────────────── */
   useEffect(()=>{
@@ -1524,7 +1553,7 @@ If nothing notable, respond: {"alerts":[]}`,
           {(activeTab==="events"||activeTab==="flights"||activeTab==="acars")&&(
             <div style={{padding:"9px 12px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
               <div style={{fontFamily:"'Share Tech Mono',monospace",fontSize:"10px",color:C.muted}}>
-                {activeTab==="events"?`${filteredIncidents.length} events · NTSB + SDR + ASIAS`:activeTab==="acars"?`${acarsMessages.length} messages · ${acarsAlerts.length} flagged by AI`:`${filteredFlights.filter(s=>!s[8]).length} airborne · ${emgFlights.length} emergency`}
+                {activeTab==="events"?`${filteredIncidents.length} events · NTSB + SDR + ASIAS`:activeTab==="acars"?`${filteredAcarsMessages.length}${acarsHumanOnly?"/"+acarsMessages.length:""} messages · ${acarsAlerts.length} flagged by AI`:`${filteredFlights.filter(s=>!s[8]).length} airborne · ${emgFlights.length} emergency`}
               </div>
             </div>
           )}
@@ -1620,8 +1649,9 @@ If nothing notable, respond: {"alerts":[]}`,
                     {acarsStatus==="error"&&<span style={{color:C.danger}}>FEED ERROR</span>}
                     {acarsStatus==="idle"&&<span style={{color:C.muted}}>STANDBY</span>}
                   </div>
-                  <div style={{display:"flex",gap:"5px"}}>
+                  <div style={{display:"flex",gap:"5px",alignItems:"center"}}>
                     {acarsAiRunning&&<span style={{fontSize:"9px",color:"#00e5ff",fontFamily:"'Orbitron',monospace",animation:"blink 0.6s step-end infinite"}}>AI SCAN…</span>}
+                    <button onClick={()=>setAcarsHumanOnly(v=>!v)} title={acarsHumanOnly?"Show all messages":"Show human messages only"} style={{...btn,fontSize:"8px",padding:"2px 8px",fontFamily:"'Orbitron',monospace",color:acarsHumanOnly?"#00e5ff":C.muted,border:`1px solid ${acarsHumanOnly?"#00e5ff55":"#33333388"}`,background:acarsHumanOnly?"#00e5ff11":"transparent",letterSpacing:"0.06em"}}>HUMAN ONLY</button>
                     <button onClick={fetchAcars} style={{...btn,fontSize:"9px",padding:"2px 8px",fontFamily:"'Orbitron',monospace",color:"#00e5ff",border:"1px solid #00e5ff33"}}>⟳</button>
                   </div>
                 </div>
@@ -1658,25 +1688,45 @@ If nothing notable, respond: {"alerts":[]}`,
                 )}
 
                 {/* Message feed */}
-                {acarsMessages.length===0&&acarsStatus!=="nokey"&&(
+                {filteredAcarsMessages.length===0&&acarsStatus!=="nokey"&&(
                   <div style={{padding:"24px",textAlign:"center",color:C.muted,fontFamily:"'Share Tech Mono',monospace",fontSize:"11px"}}>
-                    {acarsStatus==="loading"?"FETCHING MESSAGES…":"NO MESSAGES — CHECK API KEY OR RETRY"}
+                    {acarsStatus==="loading"?"FETCHING MESSAGES…":acarsHumanOnly&&acarsMessages.length>0?"NO HUMAN MESSAGES IN CURRENT FEED — TOGGLE FILTER TO SEE ALL":"NO MESSAGES — CHECK API KEY OR RETRY"}
                   </div>
                 )}
-                {acarsMessages.map((m,i)=>{
+                {filteredAcarsMessages.map((m,i)=>{
                   const isAlerted=acarsAlerts.some(a=>a.callsign===m.callsign);
+                  // Cross-reference: find matching live flight by ICAO hex first, then callsign
+                  const liveFlight=(m.icao&&flightByIcao[m.icao.toLowerCase()])||
+                                   (m.callsign&&flightByCallsign[m.callsign.trim().toUpperCase()])||null;
+                  const liveAlt=liveFlight?Math.round((liveFlight[7]||liveFlight[13]||0)*3.28084):null; // m→ft
+                  const liveSpd=liveFlight?Math.round((liveFlight[9]||0)*1.94384):null; // m/s→kt
+                  const liveHdg=liveFlight?Math.round(liveFlight[10]||0):null;
+                  const liveGnd=liveFlight?liveFlight[8]:null;
                   return (
-                    <div key={m.id||i} style={{padding:"8px 10px",background:isAlerted?"#00e5ff08":C.bg0,border:`1px solid ${isAlerted?"#00e5ff33":C.border}`,borderRadius:"4px",borderLeft:`3px solid ${isAlerted?"#00e5ff":C.border}`}}>
+                    <div key={m.id||i} style={{padding:"8px 10px",background:isAlerted?"#00e5ff08":C.bg0,border:`1px solid ${isAlerted?"#00e5ff33":C.border}`,borderRadius:"4px",borderLeft:`3px solid ${liveFlight?"#22dd77":isAlerted?"#00e5ff":C.border}`}}>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"3px"}}>
-                        <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
+                        <div style={{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}}>
                           <span style={{fontFamily:"'Orbitron',monospace",fontSize:"10px",color:"#00e5ff",fontWeight:"bold"}}>{m.callsign}</span>
+                          {liveFlight&&(
+                            <span style={{fontSize:"8px",background:"#22dd7722",color:"#22dd77",padding:"1px 6px",borderRadius:"3px",fontFamily:"'Orbitron',monospace",letterSpacing:"0.06em"}}>
+                              ● LIVE{liveGnd?" GND":liveAlt?` ${liveAlt.toLocaleString()}ft`:""}
+                              {!liveGnd&&liveSpd?` · ${liveSpd}kt`:""}
+                              {!liveGnd&&liveHdg!=null?` · ${liveHdg}°`:""}
+                            </span>
+                          )}
                           {m.label&&<span style={{fontSize:"8px",background:"#00e5ff18",color:"#00e5ff",padding:"1px 5px",borderRadius:"3px",fontFamily:"'Share Tech Mono',monospace"}}>LBL:{m.label}</span>}
                           {m.freq&&<span style={{fontSize:"9px",color:C.muted,fontFamily:"'Share Tech Mono',monospace"}}>{m.freq}</span>}
                         </div>
-                        <span style={{fontSize:"9px",color:C.muted,fontFamily:"'Share Tech Mono',monospace"}}>{new Date(m.timestamp).toLocaleTimeString()}</span>
+                        <span style={{fontSize:"9px",color:C.muted,fontFamily:"'Share Tech Mono',monospace",flexShrink:0,marginLeft:"6px"}}>{new Date(m.timestamp).toLocaleTimeString()}</span>
                       </div>
                       <div style={{fontSize:"11px",color:C.text,fontFamily:"'Share Tech Mono',monospace",lineHeight:1.5,wordBreak:"break-all"}}>{m.text.slice(0,200)}</div>
-                      {m.reg&&<div style={{fontSize:"9px",color:C.muted,marginTop:"2px",fontFamily:"'Share Tech Mono',monospace"}}>REG: {m.reg} · VIA: {m.station||"unknown"}</div>}
+                      {(m.reg||liveFlight)&&(
+                        <div style={{fontSize:"9px",color:C.muted,marginTop:"2px",fontFamily:"'Share Tech Mono',monospace"}}>
+                          {m.reg&&<span>REG: {m.reg} · </span>}
+                          {m.station&&<span>VIA: {m.station} · </span>}
+                          {liveFlight&&<span style={{color:"#22dd7788"}}>ICAO: {liveFlight[0]?.toUpperCase()} · {liveFlight[2]}</span>}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
