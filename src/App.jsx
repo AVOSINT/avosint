@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { jascLabel } from "./jascCodes.js";
 
 /* ══════════════════════════════════════════════════════════════════════════════
    CONSTANTS
@@ -414,6 +415,7 @@ function EventCard({ev,selected,onClick}) {
       </div>
       <div style={{fontWeight:"600",fontSize:"12px",color:C.text,marginBottom:"2px"}}>{ev.aircraft}</div>
       {ev.carrier&&<div style={{fontSize:"10px",color:C.accent,marginBottom:"1px"}}>{ev.carrier}</div>}
+      {ev.source==="SDR"&&ev.jascCode&&(()=>{const lbl=jascLabel(ev.jascCode);return lbl?<div style={{fontSize:"10px",color:"#ffb300",marginBottom:"1px",fontFamily:"'Share Tech Mono',monospace"}}>🔧 {lbl}</div>:null;})()}
       <div style={{fontSize:"10px",color:C.muted}}>{ev.location}</div>
       <div style={{fontSize:"9px",color:C.muted,marginTop:"3px",fontFamily:"'Share Tech Mono',monospace"}}>
         {ev.date} · {ev.source}{ev.source==="ASIAS"&&<span style={{marginLeft:"4px",fontSize:"8px",background:"#ff664422",color:"#ff9966",border:"1px solid #ff664444",borderRadius:"2px",padding:"0 4px",fontFamily:"'Orbitron',monospace"}}>PRELIMINARY</span>} · {ev.phase}
@@ -443,14 +445,17 @@ function DetailPanel({ev,onClose}) {
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px",marginBottom:"14px"}}>
         {(ev.source==="SDR"
-          ? [
-              ["SDR #",   ev.ctrlNum||"N/A"],
-              ["JASC CODE",ev.jascCode||"—"],
-              ["N-NUMBER",ev.reg||"N/A"],
-              ["OPERATOR",ev.carrier||"—"],
-              ["AIRCRAFT", ev.aircraft||"—"],
-              ["DATE",    ev.date],
-            ]
+          ? (()=>{
+              const jDesc=ev.jascCode?jascLabel(ev.jascCode):null;
+              return [
+                ["SDR #",        ev.ctrlNum||"N/A"],
+                ["JASC CODE",    ev.jascCode||"—"],
+                ["SYSTEM",       jDesc||"—"],
+                ["N-NUMBER",     ev.reg||"N/A"],
+                ["OPERATOR",     ev.carrier||"—"],
+                ["DATE",         ev.date],
+              ];
+            })()
           : [
               ["REG",ev.reg||"N/A"],["CATEGORY",ev.category||"—"],
               ["CARRIER",ev.carrier||"Independent"],["PHASE",ev.phase||"—"],
