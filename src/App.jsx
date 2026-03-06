@@ -774,12 +774,15 @@ export default function AviationDashboard() {
     mapRef.current.flyTo(r.center,r.zoom,{duration:1.5,easeLinearity:0.3});
   },[region]);
 
-  /* ── Fetch OpenSky ───────────────────────────────────────────────────── */
+  /* ── Fetch OpenSky (browser-direct — bypasses Vercel IP blocks) ─────────── */
+  // OpenSky blocks cloud-provider IPs but allows regular browser requests.
+  // Calling directly from the browser uses the user's own IP, which works fine.
+  // Anonymous limit: 400 credits/day. At 3-min refresh + normal use this is safe.
   const fetchFlights=useCallback(async()=>{
     setApiStatus("loading");
     try{
       const r=REGIONS[region];
-      let url="/api/opensky";
+      let url="https://opensky-network.org/api/states/all";
       if(r.bbox){const{lamin,lomin,lamax,lomax}=r.bbox;url+=`?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;}
       const resp=await fetch(url,{signal:AbortSignal.timeout(18000)});
       if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -792,7 +795,7 @@ export default function AviationDashboard() {
 
   useEffect(()=>{
     fetchFlights();
-    const iv=setInterval(fetchFlights,120000); // 2-minute refresh — 720 calls/day vs 4,000 credit limit
+    const iv=setInterval(fetchFlights,180000); // 3-minute refresh — ~160 calls/day typical use
     return()=>clearInterval(iv);
   },[fetchFlights]);
 
